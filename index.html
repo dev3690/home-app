@@ -2,12 +2,12 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home App — Pantry, Shopping & Dashboard (Phase 1)</title>
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=8">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
-<script src="config.js"></script><script src="app.js" defer></script>
+<script src="config.js"></script><script src="app.js?v=8" defer></script>
 </head><body>
 <header id="appHeader" class="hidden"><h1>Home</h1><span id="who" class="who"></span>
 <button class="textbtn" onclick="doLogout()">Log out</button></header>
@@ -31,6 +31,7 @@
 <label>Password</label><input id="pass" type="password" autocomplete="current-password" placeholder="At least 6 characters">
 <button id="authSubmit" class="primary" onclick="doAuth(authMode)">Log in</button>
 <p id="authHint" class="muted" style="text-align:center">Returning? Just enter your number and password.<br>Please don't share passwords in chat — set them here.</p>
+<p class="muted" style="text-align:center">App version v8 — Used fix</p>
 </div></div>
 </section>
 
@@ -47,6 +48,7 @@
 <section id="view-pantry" class="hidden">
 <div class="card"><h2>Pantry</h2>
 <input id="pantrySearch" placeholder="Search pantry…" oninput="renderPantry()">
+<p id="pantryMsg" class="muted"></p>
 <div id="pantryList"></div></div>
 </section>
 

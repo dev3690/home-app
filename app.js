@@ -165,30 +165,54 @@ function renderPantry() {
     : "<p class='muted'>No pantry items yet. Add your first item.</p>";
 }
 async function markUsed(id) {
-  // "Used" must visibly consume something. Previously it only set
-  // last_used_at (invisible), so it looked broken. Now: normal items lose
-  // 1 unit; level items step down full -> half -> low -> empty.
-  const item = pantry.find(x => String(x.id) === String(id));
-  if (!item) { await loadCloud(); return; }
-  let update = { last_used_at: new Date().toISOString() };
-  if (item.level) {
-    const steps = ["full", "half", "low", "empty"];
-    const idx = steps.indexOf(item.level);
-    // next is a string ("half"), not a number — the old code compared it
-    // with >= 0, which is always false for a string, so it never stepped down.
-    update.level = idx >= 0 ? steps[Math.min(idx + 1, 3)] : item.level;
-    if (demoMode) item.level = update.level;
-  } else {
-    update.quantity = Math.max(0, Number(item.quantity || 0) - 1);
-    if (demoMode) item.quantity = update.quantity;
-  }
-  if (demoMode) { item.last_used_at = update.last_used_at; saveLocal(); }
-  else {
-    const res = await sb.from("pantry_items").update(update).eq("id", id);
-    if (res.error) return alert(res.error.message);
-    await loadCloud();
+  // "Used" must visibly consume something. Real-world case that looked
+  // broken: a 1-unit item went 1 -> 0 but stayed listed at 0, so it looked
+  // like nothing happened. Now: using the last unit REMOVES the item,
+  // with a visible message. Level items step down full -> half -> low -> empty.
+  let item = pantry.find(x => String(x.id) === String(id));
+  if (!item) { await loadCloud(); item = pantry.find(x => String(x.id) === String(id)); }
+  if (!item) return alert("That item was not found — please reload the Pantry and try again.");
+  const msgEl = $("pantryMsg");
+  const setMsg = (t) => { if (msgEl) msgEl.textContent = t; };
+  try {
+    if (item.level) {
+      const steps = ["full", "half", "low", "empty"];
+      const idx = steps.indexOf(item.level);
+      const nextLevel = idx >= 0 ? steps[Math.min(idx + 1, 3)] : item.level;
+      if (demoMode) { item.level = nextLevel; item.last_used_at = new Date().toISOString(); saveLocal(); }
+      else {
+        const res = await sb.from("pantry_items").update({ level: nextLevel, last_used_at: new Date().toISOString() }).eq("id", id);
+        if (res.error) throw new Error(res.error.message);
+        await loadCloud();
+      }
+      setMsg(`Used 1 × ${item.name} — level now: ${nextLevel}.`);
+    } else {
+      const newQty = Number(item.quantity || 0) - 1;
+      if (newQty <= 0) {
+        if (demoMode) { pantry = pantry.filter(x => String(x.id) !== String(id)); saveLocal(); }
+        else {
+          const res = await sb.from("pantry_items").delete().eq("id", id);
+          if (res.error) throw new Error(res.error.message);
+          await loadCloud();
+        }
+        setMsg(`Used up ${item.name} — removed from pantry (it was the last one).`);
+      } else {
+        if (demoMode) { item.quantity = newQty; item.last_used_at = new Date().toISOString(); saveLocal(); }
+        else {
+          const res = await sb.from("pantry_items").update({ quantity: newQty, last_used_at: new Date().toISOString() }).eq("id", id);
+          if (res.error) throw new Error(res.error.message);
+          await loadCloud();
+        }
+        setMsg(`Used 1 × ${item.name} — now ${newQty} ${item.unit} left.`);
+      }
+    }
+  } catch (e) {
+    alert("Used failed: " + (e.message || e));
+    return;
   }
   renderDashboard(); renderPantry();
+  // Re-apply the message after re-render (renderPantry does not clear it).
+  if (msgEl && msgEl.textContent) { /* kept */ }
 }
 async function delPantry(id) {
   // No confirm() dialog: it blocks deletion in some browsers/automation
