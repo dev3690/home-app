@@ -15,7 +15,22 @@ const phoneEmail = (p) => `p${digits(p)}@homeapp.local`;
 const today = () => new Date().toISOString().slice(0, 10);
 const daysUntil = (d) => d ? Math.round((new Date(d) - new Date(today())) / 86400000) : null;
 
+function showLogin() {
+  $("view-login").classList.remove("hidden");
+  $("appPages").classList.add("hidden");
+  $("appHeader").classList.add("hidden");
+  $("mainNav").classList.add("hidden");
+  pantry = []; shopping = [];
+}
+function showApp() {
+  $("view-login").classList.add("hidden");
+  $("appPages").classList.remove("hidden");
+  $("appHeader").classList.remove("hidden");
+  $("mainNav").classList.remove("hidden");
+}
 function show(view) {
+  if (!user) return showLogin();
+  showApp();
   ["dashboard", "pantry", "add", "shopping"].forEach(v => $(`view-${v}`).classList.toggle("hidden", v !== view));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
   if (view === "dashboard") renderDashboard();
@@ -39,19 +54,24 @@ async function init() {
     sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
     const { data } = await sb.auth.getSession();
     user = data.session?.user || null;
-    if (user) { await loadCloud(); $("authCard").classList.add("hidden"); $("who").textContent = "Logged in • shared household"; }
-    else { $("authCard").classList.remove("hidden"); }
+    if (user) {
+      await loadCloud();
+      $("who").textContent = "Shared household";
+      showApp(); show("dashboard");
+    } else {
+      showLogin();
+    }
     sb.channel("ha-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "pantry_items" }, loadCloud)
-      .on("postgres_changes", { event: "*", schema: "public", table: "shopping_items" }, loadCloud)
+      .on("postgres_changes", { event: "*", schema: "public", table: "pantry_items" }, () => { if (user) loadCloud(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "shopping_items" }, () => { if (user) loadCloud(); })
       .subscribe();
+    return;
   } else {
     demoMode = true; loadLocal();
     $("demoBanner").classList.remove("hidden");
-    $("authCard").classList.remove("hidden");
-    $("who").textContent = "Demo mode on this device only — connect Supabase to share";
+    showLogin();
+    return;
   }
-  show("dashboard");
 }
 
 async function loadCloud() {
@@ -66,8 +86,9 @@ async function doAuth(mode) {
   if (digits(phone).length < 10) return alert("Enter a full phone number.");
   if (pass.length < 6) return alert("Password must be at least 6 characters.");
   if (demoMode) {
-    user = { phone, name: name || phone }; $("authCard").classList.add("hidden");
-    $("who").textContent = `Demo as ${user.name}`; return show("dashboard");
+    user = { phone, name: name || phone };
+    $("who").textContent = `Demo as ${user.name}`;
+    showApp(); return show("dashboard");
   }
   let res = mode === "signup"
     ? await sb.auth.signUp({ email: phoneEmail(phone), password: pass })
@@ -75,8 +96,8 @@ async function doAuth(mode) {
   if (res.error) return alert(res.error.message);
   user = res.data.user;
   if (mode === "signup") await sb.from("profiles").upsert({ id: user.id, phone, display_name: name || phone });
-  $("authCard").classList.add("hidden"); $("who").textContent = "Logged in • shared household";
-  await loadCloud(); show("dashboard");
+  $("who").textContent = "Shared household";
+  await loadCloud(); showApp(); show("dashboard");
 }
 async function doLogout() {
   if (sb) await sb.auth.signOut();
@@ -85,6 +106,7 @@ async function doLogout() {
 
 // ---- Pantry ----
 async function addPantryItem(it) {
+  if (!user) return showLogin();
   const row = { ...it, added_by: user?.phone || user?.name || "family" };
   if (demoMode) { row.id = Date.now().toString(); row.created_at = new Date().toISOString(); pantry.push(row); saveLocal(); }
   else {

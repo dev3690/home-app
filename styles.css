@@ -1,21 +1,46 @@
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f7f4ee;color:#222}
-header{background:#1f5c4d;color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-header h1{font-size:20px;margin:0}nav{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px;background:#fff;position:sticky;top:0;z-index:5;border-bottom:1px solid #ddd}
-nav button{border:1px solid #1f5c4d;background:#fff;color:#1f5c4d;padding:9px 12px;border-radius:20px;font-size:15px;cursor:pointer}
-nav button.active{background:#1f5c4d;color:#fff}
-main{max-width:900px;margin:0 auto;padding:14px}
-.card{background:#fff;border:1px solid #e2ddd2;border-radius:14px;padding:14px;margin-bottom:14px}
-h2{margin:0 0 10px;font-size:19px}h3{margin:14px 0 6px}
-label{display:block;font-size:14px;margin:8px 0 3px}input,select,textarea{width:100%;padding:11px;border:1px solid #ccc;border-radius:10px;font-size:16px}
-button.primary{background:#1f5c4d;color:#fff;border:0;padding:12px 16px;border-radius:10px;font-size:16px;cursor:pointer;width:100%;margin-top:10px}
-button.small{width:auto;padding:8px 12px;margin:4px 4px 0 0}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media(max-width:600px){.grid{grid-template-columns:1fr}}
-.item{border-bottom:1px solid #eee;padding:10px 0;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+/* Home App — Apple-inspired: clean, calm, lots of white space, SF-style type. */
+*{box-sizing:border-box}
+:root{--bg:#f5f5f7;--text:#1d1d1f;--muted:#86868b;--accent:#0071e3;--accent-press:#0077ed;--card:#fff;--line:#e8e8ed;--input-bg:#f5f5f7}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.45}
+a{color:var(--accent)}
+/* Frosted top bar, like iOS / macOS */
+header{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;background:rgba(251,251,253,.82);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line)}
+header h1{font-size:21px;font-weight:700;letter-spacing:-.02em;margin:0}
+header .who{font-size:14px;color:var(--muted)}
+/* Segmented control nav */
+nav{display:flex;gap:4px;padding:10px 14px;background:rgba(251,251,253,.82);backdrop-filter:saturate(180%) blur(20px);position:sticky;top:57px;z-index:19;border-bottom:1px solid var(--line)}
+nav .seg{flex:1;display:flex;background:#e8e8ed;border-radius:12px;padding:3px;gap:3px}
+nav button{flex:1;border:0;background:transparent;color:var(--text);padding:9px 6px;border-radius:9px;font-size:15px;font-weight:500;cursor:pointer}
+nav button.active{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.12);font-weight:600}
+main{max-width:980px;margin:0 auto;padding:18px 16px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px;margin-bottom:14px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+h2{margin:0 0 8px;font-size:24px;font-weight:700;letter-spacing:-.02em}
+h3{margin:16px 0 6px;font-size:17px;font-weight:600}
+p{margin:6px 0}
+label{display:block;font-size:14px;font-weight:500;margin:12px 0 5px;color:#424245}
+input,select,textarea{width:100%;padding:12px 14px;border:0;background:var(--input-bg);border-radius:12px;font-size:16px;font-family:inherit;color:var(--text);outline:none}
+input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(0,113,227,.25);background:#fff}
+button.primary{background:var(--accent);color:#fff;border:0;padding:13px 18px;border-radius:14px;font-size:17px;font-weight:600;cursor:pointer;width:100%;margin-top:14px}
+button.primary:active{background:var(--accent-press)}
+button.secondary{background:#e8e8ed;color:var(--text);border:0;padding:13px 18px;border-radius:14px;font-size:17px;font-weight:600;cursor:pointer;width:100%;margin-top:10px}
+button.small{width:auto;padding:8px 14px;margin:4px 4px 0 0;border:0;border-radius:20px;background:#f5f5f7;font-size:15px;font-weight:500;cursor:pointer}
+button.textbtn{background:none;border:0;color:var(--accent);font-size:15px;font-weight:600;cursor:pointer;padding:8px 4px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:600px){.grid{grid-template-columns:1fr}nav{top:57px}h2{font-size:22px}}
+.item{border-bottom:1px solid var(--line);padding:12px 0;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
 .item:last-child{border-bottom:0}
-.badge{display:inline-block;padding:3px 8px;border-radius:20px;font-size:12px;background:#eef3f0}
-.badge.warn{background:#fde9c8}.badge.bad{background:#f8d7d7}.badge.low{background:#ffe9a8}
-.muted{color:#666;font-size:14px}.hidden{display:none}
-.flag{border-left:5px solid #d97706;padding-left:10px}
-table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:7px;border-bottom:1px solid #eee;font-size:15px}
-#demoBanner{background:#fff3cd;border:1px solid #e6c87a;padding:10px 12px;border-radius:10px;margin-bottom:12px}
+.badge{display:inline-block;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:500;background:#f5f5f7;color:#424245}
+.badge.warn{background:#fff2cc}.badge.bad{background:#ffe3e3}.badge.low{background:#fff2cc}
+.muted{color:var(--muted);font-size:14px}
+.hidden{display:none !important}
+.flag{border-left:4px solid #ff9f0a;padding-left:12px}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px;border-bottom:1px solid var(--line);font-size:15px}
+#demoBanner{background:#fff8e1;border:1px solid #ffe082;padding:12px;border-radius:14px;margin-bottom:14px}
+/* Separate login page — centred, calm, no app chrome visible */
+.login-wrap{min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center;padding:24px 16px}
+.login-card{width:100%;max-width:420px;background:#fff;border-radius:28px;padding:28px 24px;box-shadow:0 12px 40px rgba(0,0,0,.08);border:1px solid var(--line);text-align:left}
+.login-card h1{font-size:32px;letter-spacing:-.03em;margin:0 0 4px}
+.login-card .tag{font-size:17px;color:var(--muted);margin-bottom:18px}
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center}
+.stat b{font-size:22px;display:block}.stat span{font-size:13px;color:var(--muted)}

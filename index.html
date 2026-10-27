@@ -9,26 +9,33 @@
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
 <script src="config.js"></script><script src="app.js" defer></script>
 </head><body>
-<header><h1>🏠 Home App</h1><span id="who" class="muted" style="color:#fff"></span>
-<button class="small" onclick="doLogout()">Log out</button></header>
-<nav>
+<header id="appHeader" class="hidden"><h1>Home</h1><span id="who" class="who"></span>
+<button class="textbtn" onclick="doLogout()">Log out</button></header>
+<nav id="mainNav" class="hidden"><div class="seg">
 <button data-view="dashboard" class="active" onclick="show('dashboard')">Home</button>
 <button data-view="pantry" onclick="show('pantry')">Pantry</button>
-<button data-view="add" onclick="show('add')">Add items</button>
-<button data-view="shopping" onclick="show('shopping')">Shopping list</button>
-</nav>
+<button data-view="add" onclick="show('add')">Add</button>
+<button data-view="shopping" onclick="show('shopping')">Shopping</button>
+</div></nav>
 <main>
-<div id="demoBanner" class="hidden">Demo mode: this device only. Connect Supabase (see README) to share live with family.</div>
-
-<div id="authCard" class="card hidden">
-<h2>Log in with phone + password</h2>
-<p class="muted">Each family member creates their own account here. Everyone sees the same shared household data and can edit everything. Do not share passwords in chat — set them here.</p>
-<label>Phone number</label><input id="phone" type="tel" placeholder="e.g. 6175550123">
-<label>Your name</label><input id="displayName" placeholder="e.g. Dev">
-<label>Password</label><input id="pass" type="password" placeholder="At least 6 characters">
+<!-- LOGIN PAGE — the only thing shown when logged out. No pantry, shopping or home data is rendered before login. -->
+<section id="view-login">
+<div class="login-wrap"><div class="login-card">
+<h1>Home</h1>
+<p class="tag">Your family's pantry, shopping and kitchen — in one calm place.</p>
+<p class="muted">Log in with your phone number and password. Each family member has their own login, and everyone sees the same shared household.</p>
+<label>Phone number</label><input id="phone" type="tel" autocomplete="tel" placeholder="e.g. 6175550123">
+<label>Your name</label><input id="displayName" autocomplete="name" placeholder="e.g. Dev">
+<label>Password</label><input id="pass" type="password" autocomplete="current-password" placeholder="At least 6 characters">
 <button class="primary" onclick="doAuth('login')">Log in</button>
-<button class="primary" onclick="doAuth('signup')" style="background:#555">Create account (first time)</button>
-</div>
+<button class="secondary" onclick="doAuth('signup')">Create account</button>
+<p class="muted" style="text-align:center">First time? Use Create account. Afterwards, use Log in.<br>Please don't share passwords in chat — set them here.</p>
+</div></div>
+</section>
+
+<!-- APP PAGES — hidden until login. -->
+<div id="appPages" class="hidden">
+<div id="demoBanner" class="hidden">Demo mode: this device only. Connect Supabase (see README) to share live with family.</div>
 
 <section id="view-dashboard">
 <div id="dashCounts"></div><div id="dashFlags"></div>
@@ -78,4 +85,5 @@
 <button class="primary" onclick="(async()=>{const n=$('sName').value.trim();if(!n)return;const row={name:n,quantity:Number($('sQty').value)||1,unit:'pcs',category:'Other',added_by:user?.phone||'family'};if(demoMode){row.id=Date.now().toString();shopping.push(row);saveLocal();}else await sb.from('shopping_items').insert(row);if(!demoMode)await loadCloud();renderShopping();$('sName').value='';})()">Add to shopping list</button>
 <div id="shopList" style="margin-top:12px"></div></div>
 </section>
+</div>
 </main></body></html>
