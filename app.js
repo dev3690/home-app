@@ -173,8 +173,10 @@ async function markUsed(id) {
   let update = { last_used_at: new Date().toISOString() };
   if (item.level) {
     const steps = ["full", "half", "low", "empty"];
-    const next = steps[Math.min(steps.indexOf(item.level) + 1, 3)];
-    update.level = next >= 0 ? next : item.level;
+    const idx = steps.indexOf(item.level);
+    // next is a string ("half"), not a number — the old code compared it
+    // with >= 0, which is always false for a string, so it never stepped down.
+    update.level = idx >= 0 ? steps[Math.min(idx + 1, 3)] : item.level;
     if (demoMode) item.level = update.level;
   } else {
     update.quantity = Math.max(0, Number(item.quantity || 0) - 1);
@@ -189,10 +191,16 @@ async function markUsed(id) {
   renderDashboard(); renderPantry();
 }
 async function delPantry(id) {
-  if (!confirm("Remove this pantry item?")) return;
+  // No confirm() dialog: it blocks deletion in some browsers/automation
+  // and silently leaves the item in place with no error. Remove is direct,
+  // like shopping Remove, and the item is gone immediately on refresh.
   if (demoMode) { pantry = pantry.filter(x => x.id !== id); saveLocal(); }
-  else await sb.from("pantry_items").delete().eq("id", id);
-  await (demoMode ? Promise.resolve() : loadCloud()); renderPantry(); renderDashboard();
+  else {
+    const res = await sb.from("pantry_items").delete().eq("id", id);
+    if (res.error) return alert(res.error.message);
+    await loadCloud();
+  }
+  renderPantry(); renderDashboard();
 }
 
 function renderDashboard() {
