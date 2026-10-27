@@ -680,8 +680,14 @@ async function loadHouseholdRecipes() {
   if (!currentHousehold) return;
   const { data, error } = await sb.from("recipes").select("*").eq("household_id", currentHousehold.id).order("name");
   if (!error && data) {
+    const ids = data.map(r => r.id);
+    let ingMap = {};
+    if (ids.length) {
+      const { data: ings } = await sb.from("recipe_ingredients").select("*").in("recipe_id", ids);
+      (ings || []).forEach(x => { (ingMap[x.recipe_id] = ingMap[x.recipe_id] || []).push(x.ingredient_name); });
+    }
     const seeded = recipes.filter(r => r.seeded);
-    recipes = [...seeded, ...data.map(r => ({ ...r, category: r.meal_type || "Main", minutes: r.cooking_time_minutes }))];
+    recipes = [...seeded, ...data.map(r => ({ ...r, category: r.meal_type || "Main", minutes: r.cooking_time_minutes, ingredients: ingMap[r.id] || [] }))];
     renderRecipes(); renderKitchen();
   }
 }
@@ -779,8 +785,14 @@ async function loadMeals() {
     renderKitchen();
   }
 }
+let mealLogging = false;
 async function logMealWithDeductions() {
+  if (mealLogging) return;
   if (!currentHousehold) return alert("Create or join a household first — pantry deductions and meal costs need a household pantry.");
+  mealLogging = true;
+  try { await logMealWithDeductionsInner(); } catch (e) { alert("Meal could not be logged: " + (e.message || e)); } finally { mealLogging = false; }
+}
+async function logMealWithDeductionsInner() {
   const dish = $("kDish")?.value.trim() || $("kitchenRecipe")?.selectedOptions[0]?.textContent || "Custom dish";
   const servings = Number($("kServings")?.value) || 1;
   const recipeId = $("kitchenRecipe")?.value || null;
@@ -798,7 +810,10 @@ async function logMealWithDeductions() {
   }
   const perServing = servings ? total / servings : total;
   const userId = (await sb.auth.getUser()).data.user?.id || null;
-  const res = await sb.from("meals_cooked").insert({ household_id: currentHousehold.id, recipe_id: recipeId && !String(recipeId).startsWith("seed-") ? recipeId : null, dish_name: dish, gujarati: null, meal_type: $("kMealType")?.value || "Main", servings, cooked_by: userId, meal_date: $("kitchenDate")?.value || today(), total_cost: total, cost_per_serving: perServing, cost_estimated: estimated, leftover_note: $("kLeftovers")?.value || null });
+  // v20 bug fix: without .select() Supabase returns res.data = null,
+  // so reading res.data.id threw and deductions never ran, while the
+  // meal row was already inserted (so repeat clicks duplicated meals).
+  const res = await sb.from("meals_cooked").insert({ household_id: currentHousehold.id, recipe_id: recipeId && !String(recipeId).startsWith("seed-") ? recipeId : null, dish_name: dish, gujarati: null, meal_type: $("kMealType")?.value || "Main", servings, cooked_by: userId, meal_date: $("kitchenDate")?.value || today(), total_cost: total, cost_per_serving: perServing, cost_estimated: estimated, leftover_note: $("kLeftovers")?.value || null }).select().single();
   if (res.error) return alert("Meal could not be logged: " + res.error.message);
   const mealId = res.data.id;
   for (const u of used) {
