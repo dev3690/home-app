@@ -120,12 +120,22 @@ async function doLogout() {
 // ---- Pantry ----
 async function addPantryItem(it) {
   if (!user) return showLogin();
-  const row = { ...it, added_by: user?.phone || user?.name || "family" };
+  // pantry_items has NO store, total_price or unit_price columns — those
+  // live in purchase_lots. Sending them to pantry_items caused Supabase's
+  // "Could not find the 'store' column" schema-cache error. So whitelist
+  // pantry fields here, and put price/store only in the lot below.
+  const row = {
+    name: it.name, category: it.category || "Other", quantity: it.quantity || 0,
+    unit: it.unit || "pcs", storage: it.storage || "Pantry",
+    level: it.level || null, expiry_date: it.expiry_date || null,
+    purchase_date: it.purchase_date || null,
+    added_by: user?.phone || user?.name || "family"
+  };
   if (demoMode) { row.id = Date.now().toString(); row.created_at = new Date().toISOString(); pantry.push(row); saveLocal(); }
   else {
     const { data, error } = await sb.from("pantry_items").insert(row).select().single();
     if (error) return alert(error.message);
-    if (it.total_price || it.unit_price) await sb.from("purchase_lots").insert({
+    if (it.total_price || it.unit_price || it.store) await sb.from("purchase_lots").insert({
       pantry_item_id: data.id, item_name: it.name, quantity: it.quantity, unit: it.unit,
       unit_price: it.unit_price || null, total_price: it.total_price || null,
       purchase_date: it.purchase_date || null, store: it.store || null,
