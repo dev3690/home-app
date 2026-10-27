@@ -14,6 +14,17 @@
 let sb = null, demoMode = true, user = null, pantry = [], shopping = [];
 let recipes = [], kitchenLog = [], tithiToday = false;
 let loginMethod = "phone", currentHousehold = null, householdMembers = [];
+let inventoryItems = [], editingInvId = null;
+const INV_CATEGORIES = ["Dal and Pulses", "Atta and Flour", "Rice", "Masala", "Dry Fruits", "Oil and Ghee", "Dairy", "Vegetables", "Fruits", "Snacks", "Frozen", "Household", "Other"];
+const UNIT_BASE = { g: 1, kg: 1000, lb: 453.592, oz: 28.3495, ml: 1, L: 1000, cup: 240, tbsp: 15, tsp: 5, pcs: 1 };
+function convertQuantity(q, from, to) {
+  if (from === to) return q;
+  const w = ["g", "kg", "lb", "oz"], v = ["ml", "L", "cup", "tbsp", "tsp"];
+  const fam = (u) => w.includes(u) ? "w" : v.includes(u) ? "v" : "p";
+  if (fam(from) !== fam(to)) return null;
+  if (fam(from) === "p") return null;
+  return q * UNIT_BASE[from] / UNIT_BASE[to];
+}
 let receiptRows = [];
 // Seeded Jain library — assistant-seeded, family can add more.
 // ingredients use pantry-style names so What To Cook can match them.
@@ -70,7 +81,7 @@ function show(view) {
   ["dashboard", "pantry", "add", "shopping", "recipes", "kitchen", "cook", "household"].forEach(v => { const el = $(`view-${v}`); if (el) el.classList.toggle("hidden", v !== view); });
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
   if (view === "dashboard") renderDashboard();
-  if (view === "pantry") renderPantry();
+  if (view === "pantry") renderInventory();
   if (view === "shopping") renderShopping();
   if (view === "recipes") renderRecipes();
   if (view === "kitchen") renderKitchen();
@@ -100,7 +111,7 @@ async function init() {
     const { data } = await sb.auth.getSession();
     user = data.session?.user || null;
     if (user) {
-      await loadCloud(); await loadHousehold();
+      await loadCloud(); await loadHousehold(); await loadInventory();
       $("who").textContent = currentHousehold ? currentHousehold.name : "Shared household";
       showApp(); show(currentHousehold ? "dashboard" : "household");
     } else {
@@ -109,6 +120,8 @@ async function init() {
     sb.channel("ha-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "pantry_items" }, () => { if (user) loadCloud(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "shopping_items" }, () => { if (user) loadCloud(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => { if (user) loadInventory(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "shopping_list" }, () => { if (user) loadCloud(); })
       .subscribe();
     return;
   } else {
@@ -189,7 +202,7 @@ async function doAuth(mode) {
   user = res.data.user;
   if (mode === "signup") await sb.from("profiles").upsert({ id: user.id, phone: loginMethod === "phone" ? phone : null, email: loginMethod === "email" ? email : null, display_name: name || phone || email });
   $("who").textContent = "Shared household";
-  await loadCloud(); await loadHousehold(); showApp(); show(currentHousehold ? "dashboard" : "household");
+  await loadCloud(); await loadHousehold(); await loadInventory(); showApp(); show(currentHousehold ? "dashboard" : "household");
 }
 async function loadHousehold() {
   currentHousehold = null; householdMembers = [];
@@ -352,7 +365,8 @@ async function delPantry(id) {
 }
 
 function renderDashboard() {
-  const low = pantry.filter(i => i.level === "low" || i.level === "empty" || (!i.level && Number(i.quantity) <= 1));
+  const src = (currentHousehold && inventoryItems.length) ? inventoryItems : pantry;
+  const low = src.filter(i => i.level === "low" || i.level === "empty" || (!i.level && Number(i.quantity) <= Number(i.low_threshold ?? 1)));
   const exp = pantry.filter(i => { const d = daysUntil(i.expiry_date); return d !== null && d <= 7; });
   const unused = pantry.filter(i => {
     const ref = i.last_used_at || i.created_at; if (!ref) return false;
@@ -364,7 +378,8 @@ function renderDashboard() {
     flag("Expiring soon / expired", exp, "Use these first.") +
     flag("Not used in 10 days", unused, "Check if this is still good to use or expired. Nothing is deleted automatically.") ||
     "<div class='card'><p>Nothing flagged right now. Pantry looks good.</p></div>";
-  $("dashCounts").innerHTML = `<div class="card"><b>${pantry.length}</b> pantry items • <b>${shopping.filter(s => !s.checked).length}</b> items to buy • <b>${shopping.length}</b> shopping items total • <b>${kitchenLog.length}</b> meals logged</div>`;
+  const invCount = (currentHousehold && inventoryItems.length) ? inventoryItems.length : pantry.length;
+  $("dashCounts").innerHTML = `<div class="card"><b>${invCount}</b> pantry items • <b>${shopping.filter(s => !s.checked).length}</b> items to buy • <b>${shopping.length}</b> shopping items total • <b>${kitchenLog.length}</b> meals logged</div>`;
   if ($("dashRecent")) {
     const recent = kitchenLog.slice(0, 5);
     $("dashRecent").innerHTML = recent.length ? recent.map(k => `<div>${esc(k.dish_name)}${k.gujarati ? " (" + esc(k.gujarati) + ")" : ""} — ${esc(k.meal_date)}</div>`).join("") : "<p class='muted'>No meals logged yet.</p>";
@@ -424,6 +439,120 @@ async function saveReceipt() {
   }
   if (!demoMode) await loadCloud();
   alert("Saved checked receipt items to pantry."); show("pantry");
+}
+
+// ---- Ghar Pantry Phase 2: Inventory pantry ----
+async function loadInventory() {
+  inventoryItems = [];
+  if (demoMode || !sb || !currentHousehold) return;
+  try {
+    const r = await sb.from("inventory").select("*").eq("household_id", currentHousehold.id).order("name");
+    if (!r.error) inventoryItems = r.data || [];
+  } catch (e) { /* inventory unavailable until household exists */ }
+  renderInventory(); renderDashboard();
+}
+async function logInvEvent(invId, type, qtyChange, note) {
+  if (demoMode || !sb || !currentHousehold) return;
+  await sb.from("inventory_events").insert({ household_id: currentHousehold.id, inventory_id: invId, event_type: type, quantity_change: qtyChange, user_id: user?.id || null, note: note || null });
+}
+function invDisplay(item) { return item.tracking_type === "level" ? "Level: " + (item.level || "full") : item.quantity + " " + item.unit; }
+function renderInventory() {
+  if (!$("invList")) return;
+  if (!currentHousehold) { $("invList").innerHTML = "<p class='muted'>Create or join a household first, then your household pantry will show here. Your old pantry is still on the old Pantry screen data — use Migrate below after joining a household.</p>"; return; }
+  const q = ($("invSearch")?.value || "").toLowerCase();
+  const cat = $("invCatFilter")?.value || "", loc = $("invLocFilter")?.value || "";
+  const list = inventoryItems.filter(i => (!q || i.name.toLowerCase().includes(q)) && (!cat || i.category === cat) && (!loc || i.storage === loc));
+  const expiring = inventoryItems.filter(i => { const d = daysUntil(i.expiry_date); return d !== null && d <= 7; });
+  if ($("invExpiring")) $("invExpiring").innerHTML = expiring.length ? `<h3>Expiring soon (${expiring.length})</h3>` + expiring.map(i => `<div>${esc(i.name)} — ${invDisplay(i)}${i.expiry_date ? " • Expires " + i.expiry_date : ""}</div>`).join("") : "<p class='muted'>Nothing expiring in the next 7 days.</p>";
+  if ($("invCatFilter")) {
+    const cats = [...new Set(inventoryItems.map(i => i.category))];
+    const cur = $("invCatFilter").value;
+    $("invCatFilter").innerHTML = `<option value="">All categories</option>` + INV_CATEGORIES.map(c => `<option>${c}</option>`).join("") + cats.filter(c => !INV_CATEGORIES.includes(c)).map(c => `<option>${c}</option>`).join("");
+    $("invCatFilter").value = cur;
+  }
+  $("invList").innerHTML = list.length ? list.map(i => {
+    const low = i.tracking_type === "level" ? (i.level === "low" || i.level === "empty") : Number(i.quantity) <= Number(i.low_threshold ?? 1);
+    return `<div class="item"><div><b>${esc(i.name)}</b> <span class="badge">${esc(i.category)}</span> <span class="badge">${esc(i.storage)}</span> ${low ? `<span class="badge warn">Low stock</span>` : ""}<br><span class="muted">${invDisplay(i)}${i.brand ? " • " + esc(i.brand) : ""}${i.expiry_date ? " • Expires " + i.expiry_date : ""}${i.cost_per_unit ? " • $" + i.cost_per_unit + "/" + i.unit : ""} • Low at ${i.low_threshold ?? 1} ${i.unit}</span></div>
+    <div><button class="small" onclick="invUsed('${i.id}')">Used some</button><button class="small" onclick="invFinished('${i.id}')">Finished</button><button class="small" onclick="invWasted('${i.id}')">Thrown away</button><button class="small" onclick="editInventory('${i.id}')">Edit</button></div></div>`;
+  }).join("") : "<p class='muted'>No pantry items in this household yet. Add your first item.</p>";
+}
+async function addInventoryItem(it) {
+  if (!currentHousehold) return alert("Create or join a household first.");
+  const row = { household_id: currentHousehold.id, name: it.name, category: it.category || "Other", quantity: it.quantity ?? 0, unit: it.unit || "pcs", storage: it.storage || "Pantry", brand: it.brand || null, tracking_type: it.level ? "level" : "exact", level: it.level || null, cost_per_unit: it.cost_per_unit || null, low_threshold: it.low_threshold ?? 1, purchase_date: it.purchase_date || null, expiry_date: it.expiry_date || null, added_by: user?.phone || "family" };
+  if (demoMode) { row.id = Date.now().toString(); inventoryItems.push(row); renderInventory(); return; }
+  const res = await sb.from("inventory").insert(row).select().single();
+  if (res.error) return alert(res.error.message);
+  await logInvEvent(res.data.id, "bought", row.quantity, "Added to pantry");
+  await loadInventory();
+}
+async function addPhase2Item(it) {
+  if (currentHousehold) { await addInventoryItem(it); return; }
+  await addPantryItem(it);
+}
+async function invUsed(id) {
+  const item = inventoryItems.find(i => String(i.id) === String(id)); if (!item) return;
+  if (demoMode) { if (item.tracking_type === "level") { const steps = ["full", "half", "low", "empty"]; item.level = steps[Math.min(steps.indexOf(item.level) + 1, 3)]; } else item.quantity = Math.max(0, Number(item.quantity) - 1); renderInventory(); return; }
+  let update = {};
+  if (item.tracking_type === "level") { const steps = ["full", "half", "low", "empty"]; update.level = steps[Math.min(steps.indexOf(item.level) + 1, 3)]; }
+  else update.quantity = Math.max(0, Number(item.quantity) - 1);
+  const res = await sb.from("inventory").update(update).eq("id", id);
+  if (res.error) return alert(res.error.message);
+  await logInvEvent(id, "used", -1, "Used some");
+  await loadInventory();
+}
+async function invFinished(id) {
+  const item = inventoryItems.find(i => String(i.id) === String(id)); if (!item) return;
+  if (demoMode) { if (item.tracking_type === "level") item.level = "empty"; else item.quantity = 0; renderInventory(); return; }
+  const update = item.tracking_type === "level" ? { level: "empty" } : { quantity: 0 };
+  const res = await sb.from("inventory").update(update).eq("id", id);
+  if (res.error) return alert(res.error.message);
+  await logInvEvent(id, "used", null, "Finished");
+  await loadInventory();
+}
+async function invWasted(id) {
+  const item = inventoryItems.find(i => String(i.id) === String(id)); if (!item) return;
+  if (demoMode) { inventoryItems = inventoryItems.filter(i => String(i.id) !== String(id)); renderInventory(); return; }
+  await logInvEvent(id, "wasted", null, "Thrown away");
+  const res = await sb.from("inventory").delete().eq("id", id);
+  if (res.error) return alert(res.error.message);
+  await loadInventory();
+}
+function editInventory(id) {
+  const item = inventoryItems.find(i => String(i.id) === String(id)); if (!item) return;
+  editingInvId = id;
+  $("eName").value = item.name; $("eCat").value = item.category || "Other"; $("eQty").value = item.quantity; $("eUnit").value = item.unit || "pcs"; $("eStorage").value = item.storage || "Pantry"; $("eLevel").value = item.level || ""; $("eLow").value = item.low_threshold ?? 1; $("eExp").value = item.expiry_date || ""; $("eCost").value = item.cost_per_unit || ""; $("eBrand").value = item.brand || "";
+  $("editCard").classList.remove("hidden"); $("editCard").scrollIntoView();
+}
+function onEditUnitChange() {
+  const item = inventoryItems.find(i => String(i.id) === String(editingInvId)); if (!item) return;
+  const from = item.unit, to = $("eUnit").value, q = Number($("eQty").value);
+  const conv = convertQuantity(q, from, to);
+  if (conv !== null && from !== to) { $("eQty").value = Math.round(conv * 100) / 100; $("eConvertMsg").textContent = `Converted ${q} ${from} → ${$("eQty").value} ${to}.`; }
+  else if (from !== to) $("eConvertMsg").textContent = "No conversion between those units — quantity left as entered.";
+  else $("eConvertMsg").textContent = "";
+}
+async function saveInventoryEdit() {
+  const item = inventoryItems.find(i => String(i.id) === String(editingInvId)); if (!item) return;
+  const update = { name: $("eName").value.trim(), category: $("eCat").value, quantity: Number($("eQty").value) || 0, unit: $("eUnit").value, storage: $("eStorage").value, level: $("eLevel").value || null, tracking_type: $("eLevel").value ? "level" : "exact", low_threshold: Number($("eLow").value) || 1, expiry_date: $("eExp").value || null, cost_per_unit: $("eCost").value ? Number($("eCost").value) : null, brand: $("eBrand").value || null };
+  if (demoMode) { Object.assign(item, update); renderInventory(); $("editCard").classList.add("hidden"); return; }
+  const res = await sb.from("inventory").update(update).eq("id", editingInvId);
+  if (res.error) return alert(res.error.message);
+  await logInvEvent(editingInvId, "adjusted", null, "Edited item");
+  $("editCard").classList.add("hidden"); await loadInventory();
+}
+async function migrateOldPantry() {
+  if (!currentHousehold) return alert("Create or join a household first.");
+  if (!pantry.length) return alert("No old pantry items to migrate.");
+  let count = 0;
+  for (const p of pantry) {
+    if (inventoryItems.some(i => i.name.toLowerCase() === p.name.toLowerCase())) continue;
+    const row = { household_id: currentHousehold.id, name: p.name, category: p.category || "Other", quantity: Number(p.quantity) || 0, unit: p.unit || "pcs", storage: p.storage || "Pantry", tracking_type: p.level ? "level" : "exact", level: p.level || null, low_threshold: 1, expiry_date: p.expiry_date || null, purchase_date: p.purchase_date || null, added_by: "migrated" };
+    if (demoMode) { row.id = Date.now().toString() + count; inventoryItems.push(row); }
+    else { const res = await sb.from("inventory").insert(row).select().single(); if (!res.error) await logInvEvent(res.data.id, "bought", row.quantity, "Migrated from old pantry"); }
+    count++;
+  }
+  if (!demoMode) await loadInventory(); else renderInventory();
+  alert(`Migrated ${count} old pantry item(s) to this household pantry.`);
 }
 
 // ---- Phase 2: Recipe book ----

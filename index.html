@@ -2,12 +2,12 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home App — Pantry, Shopping & Dashboard (Phases 1–3)</title>
-<link rel="stylesheet" href="styles.css?v=12">
+<link rel="stylesheet" href="styles.css?v=13">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
-<script src="config.js"></script><script src="app.js?v=12" defer></script>
+<script src="config.js"></script><script src="app.js?v=13" defer></script>
 </head><body>
 <header id="appHeader" class="hidden"><h1>Home</h1><span id="who" class="who"></span>
 <button class="textbtn" onclick="doLogout()">Log out</button></header>
@@ -39,7 +39,7 @@
 <button class="secondary" onclick="doGoogle()">Continue with Google</button>
 <p class="muted" style="text-align:center">Google sign-in needs the Google provider turned on in Supabase. If it is not enabled yet, use phone or email for now.</p>
 <p id="authHint" class="muted" style="text-align:center">Returning? Just enter your number and password.<br>Please don't share passwords in chat — set them here.</p>
-<p class="muted" style="text-align:center">App version v12 — Ghar Pantry Phase 1 fix (join by invite code)</p>
+<p class="muted" style="text-align:center">App version v13 — Ghar Pantry Phase 2 (inventory pantry)</p>
 </div></div>
 </section>
 
@@ -71,32 +71,48 @@
 </section>
 
 <section id="view-pantry" class="hidden">
-<div class="card"><h2>Pantry</h2>
-<input id="pantrySearch" placeholder="Search pantry…" oninput="renderPantry()">
+<div class="card"><h2>Pantry — household inventory</h2>
+<p class="muted">Phase 2 pantry: search, filter by category and location, expiring soon, low-stock flags, and every change logged. Create or join a household first.</p>
+<input id="invSearch" placeholder="Search pantry…" oninput="renderInventory()">
+<div class="grid"><div><label>Category filter</label><select id="invCatFilter" onchange="renderInventory()"><option value="">All categories</option></select></div>
+<div><label>Location filter</label><select id="invLocFilter" onchange="renderInventory()"><option value="">All locations</option><option>Fridge</option><option>Freezer</option><option>Pantry</option><option>Spice Rack</option></select></div></div>
+<div id="invExpiring" style="margin-top:12px"></div>
+<div id="invList" style="margin-top:12px"></div>
 <p id="pantryMsg" class="muted"></p>
-<div id="pantryList"></div></div>
+<button class="secondary" onclick="migrateOldPantry()">Migrate old pantry items into this household</button>
+<p class="muted">Migration copies old pantry items (e.g. rice2) into the new household pantry once, skipping duplicates.</p></div>
+<div id="editCard" class="card hidden"><h2>Edit pantry item</h2>
+<div class="grid"><div><label>Item name</label><input id="eName"></div><div><label>Category</label><input id="eCat" list="invCats"></div>
+<div><label>Quantity</label><input id="eQty" type="number" step="0.01"></div><div><label>Unit</label><select id="eUnit" onchange="onEditUnitChange()"><option>pcs</option><option>g</option><option>kg</option><option>lb</option><option>oz</option><option>ml</option><option>L</option><option>cup</option><option>tbsp</option><option>tsp</option></select></div>
+<div><label>Storage</label><input id="eStorage" list="stores"></div><div><label>Level (for spices/oil, else blank)</label><select id="eLevel"><option value="">Exact amount</option><option>full</option><option>half</option><option>low</option><option>empty</option></select></div>
+<div><label>Low-stock threshold</label><input id="eLow" type="number" step="0.01"></div><div><label>Expiry date</label><input id="eExp" type="date"></div>
+<div><label>Cost per unit ($)</label><input id="eCost" type="number" step="0.01"></div><div><label>Brand</label><input id="eBrand"></div></div>
+<p id="eConvertMsg" class="muted"></p>
+<button class="primary" onclick="saveInventoryEdit()">Save changes</button>
+<button class="secondary" onclick="$('editCard').classList.add('hidden')">Cancel</button></div>
 </section>
 
 <section id="view-add" class="hidden">
 <div class="card"><h2>Add manually</h2>
 <div class="grid">
-<div><label>Item name</label><input id="mName"></div>
-<div><label>Category</label><input id="mCat" list="cats" value="Other"><datalist id="cats"><option>Vegetables</option><option>Fruits</option><option>Dairy</option><option>Grains & Flour</option><option>Spices</option><option>Oil & Salt</option><option>Snacks</option><option>Other</option></datalist></div>
+<div><label>Item name</label><input id="mName" list="invCats" autocomplete="off"></div>
+<div><label>Category</label><input id="mCat" list="invCats" value="Other"><datalist id="invCats"><option>Dal and Pulses</option><option>Atta and Flour</option><option>Rice</option><option>Masala</option><option>Dry Fruits</option><option>Oil and Ghee</option><option>Dairy</option><option>Vegetables</option><option>Fruits</option><option>Snacks</option><option>Frozen</option><option>Household</option><option>Other</option></datalist></div>
 <div><label>Quantity</label><input id="mQty" type="number" value="1"></div>
-<div><label>Unit</label><input id="mUnit" value="pcs"></div>
+<div><label>Unit</label><select id="mUnit"><option>pcs</option><option>g</option><option>kg</option><option>lb</option><option>oz</option><option>ml</option><option>L</option><option>cup</option><option>tbsp</option><option>tsp</option></select></div>
 <div><label>Storage</label><input id="mStorage" list="stores" value="Pantry"><datalist id="stores"><option>Fridge</option><option>Freezer</option><option>Pantry</option><option>Spice Rack</option></datalist></div>
 <div><label>Spice / oil / salt level (optional)</label><select id="mLevel"><option value="">Exact amount</option><option>full</option><option>half</option><option>low</option><option>empty</option></select></div>
 <div><label>Expiry date</label><input id="mExp" type="date"></div>
-<div><label>Total price ($, optional)</label><input id="mPrice" type="number" step="0.01"></div>
-<div><label>Store (optional)</label><input id="mStore"></div>
+<div><label>Cost per unit ($, optional)</label><input id="mCost" type="number" step="0.01"></div>
+<div><label>Low-stock threshold</label><input id="mLow" type="number" value="1"></div>
+<div><label>Brand (optional)</label><input id="mBrand"></div>
 </div>
-<button class="primary" onclick="(async()=>{if(!$('mName').value.trim())return alert('Enter an item name.');await addPantryItem({name:$('mName').value.trim(),category:$('mCat').value,quantity:Number($('mQty').value)||0,unit:$('mUnit').value,storage:$('mStorage').value,level:$('mLevel').value||null,expiry_date:$('mExp').value||null,purchase_date:today(),total_price:$('mPrice').value?Number($('mPrice').value):null,store:$('mStore').value});alert('Added to pantry.');})()">Add to pantry</button>
+<button class="primary" onclick="(async()=>{if(!$('mName').value.trim())return alert('Enter an item name.');await addPhase2Item({name:$('mName').value.trim(),category:$('mCat').value,quantity:Number($('mQty').value)||0,unit:$('mUnit').value,storage:$('mStorage').value,level:$('mLevel').value||null,expiry_date:$('mExp').value||null,purchase_date:today(),cost_per_unit:$('mCost').value?Number($('mCost').value):null,low_threshold:Number($('mLow').value)||1,brand:$('mBrand').value});alert('Added to pantry.');show('pantry');})()">Add to pantry</button>
 </div>
 
 <div class="card"><h2>Add many at once</h2>
 <p class="muted">One item per line, e.g. <i>Tomatoes, 2 kg, Fridge</i></p>
 <textarea id="bulk" rows="5" placeholder="Tomatoes, 2 kg, Fridge&#10;Milk, 1 gallon, Fridge"></textarea>
-<button class="primary" onclick="(async()=>{const lines=document.getElementById('bulk').value.split('\n').filter(Boolean);for(const l of lines){const p=l.split(',').map(s=>s.trim());const q=parseFloat(p[1])||1;await addPantryItem({name:p[0],category:'Other',quantity:q,unit:(p[1]||'').replace(/[\d.]/g,'').trim()||'pcs',storage:p[2]||'Pantry'});}alert('Bulk items added.');show('pantry');})()">Add all</button>
+<button class="primary" onclick="(async()=>{const lines=document.getElementById('bulk').value.split('\n').filter(Boolean);for(const l of lines){const p=l.split(',').map(s=>s.trim());const q=parseFloat(p[1])||1;await addPhase2Item({name:p[0],category:'Other',quantity:q,unit:(p[1]||'').replace(/[\d.]/g,'').trim()||'pcs',storage:p[2]||'Pantry'});}alert('Bulk items added.');show('pantry');})()">Add all</button>
 </div>
 
 <div class="card"><h2>Receipt photo / PDF — review before saving</h2>
