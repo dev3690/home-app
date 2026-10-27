@@ -416,6 +416,49 @@ async function delShop(id) {
   if (!demoMode) await loadCloud(); renderShopping();
 }
 
+// ---- Smart receipt parser (fix for wrapped order screenshots) ----
+// Old parser treated EVERY OCR line as one item, so a Costco order
+// screenshot broke: item names wrap over 2-3 lines, the price sits on
+// its own line ("$10.01"), and the leading "2 x" was kept in the name.
+// Result was 26 broken rows with blank prices for an 11-item order.
+// This parser instead: skips store/header lines, joins wrapped lines
+// until a price line is found, takes a price-only line as the total
+// for the lines above it, parses a leading "N x" as quantity, and
+// parses an embedded "NAME 2 KG 4.99" as qty/unit/total.
+// Price ambiguity: the price shown under an item is taken as the
+// LINE TOTAL for that quantity, and the review screen lets the user
+// fix it if the store meant per-unit instead. Nothing is saved until
+// the user presses Save.
+function parseSmartReceipt(text) {
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const items = [];
+  let buf = "";
+  const flush = (price) => {
+    if (!buf) return;
+    let name = buf.replace(/\s+/g, " ").trim();
+    let qty = 1, unit = "pcs", total = price;
+    const mx = name.match(/^(\d+)\s*x\s+(.+)$/i);
+    if (mx) { qty = Number(mx[1]); name = mx[2].trim(); }
+    const mq = name.match(/^(.*?)\s+(\d+\.?\d*)\s*(kg|g|lb|oz|l|ml|pcs)\s*$/i);
+    if (mq && total != null) { name = mq[1].trim(); qty = Number(mq[2]); unit = mq[3].toLowerCase(); }
+    if (name.length > 2) items.push({ name, qty, unit, total, unit_price: (total != null && qty) ? total / qty : null, include: total != null });
+    buf = "";
+  };
+  for (const line of lines) {
+    if (/^\d+\s+items?$/i.test(line)) continue;
+    if (/^(costco|cosco|cosrco|walmart|target)$/i.test(line.replace(/[^a-z]/gi, ""))) continue;
+    if (/^(subtotal|tax|delivery|tip|total\s+due)$/i.test(line)) continue;
+    const priceOnly = line.match(/^\$?\s*(\d+\.\d{2})$/);
+    if (priceOnly) { flush(Number(priceOnly[1])); continue; }
+    const trailing = line.match(/^(.*?)\s+\$?\s*(\d+\.\d{2})\s*$/);
+    if (trailing && buf === "") { buf = trailing[1]; flush(Number(trailing[2])); continue; }
+    if (trailing && buf !== "") { buf = (buf + " " + trailing[1]).trim(); flush(Number(trailing[2])); continue; }
+    buf = buf ? buf + " " + line : line;
+  }
+  flush(null);
+  return items;
+}
+
 // ---- Receipt review ----
 async function handleReceipt(file) {
   $("receiptStatus").textContent = "Reading receipt… please wait.";
@@ -434,10 +477,8 @@ async function handleReceipt(file) {
       text = r.data.text;
     }
   } catch (e) { return $("receiptStatus").textContent = "Could not read this file automatically. Use manual or bulk add, or try a clearer photo."; }
-  // Best-effort parse: lines like "Tomatoes 2.49" or "2 x Milk 3.99"
-  receiptRows = text.split("\n").map(l => l.trim()).filter(Boolean).map(l => {
-    const m = l.match(/^(.*?)\s+(\d+\.?\d*)\s*$/); return m ? { name: m[1], qty: 1, price: m[2], include: true } : { name: l, qty: 1, price: "", include: false };
-  }).filter(r => r.name.length > 2).slice(0, 60);
+  // Smart parse: joins wrapped lines, price on its own line, "N x" qty.
+  receiptRows = parseSmartReceipt(text).map(r => ({ name: r.name, qty: r.qty, price: r.total != null ? String(r.total) : "", include: r.include })).slice(0, 60);
   $("receiptStatus").textContent = `Found ${receiptRows.length} possible lines. Fix them below, then save the ones you tick.`;
   $("receiptTable").innerHTML = "<table><tr><th>Use</th><th>Item</th><th>Qty</th><th>Price ($)</th></tr>" +
     receiptRows.map((r, i) => `<tr><td><input type="checkbox" ${r.include ? "checked" : ""} onchange="receiptRows[${i}].include=this.checked"></td><td><input value="${r.name.replace(/"/g, "")}" onchange="receiptRows[${i}].name=this.value"></td><td><input type="number" value="${r.qty}" onchange="receiptRows[${i}].qty=this.value"></td><td><input value="${r.price}" onchange="receiptRows[${i}].price=this.value"></td></tr>`).join("") + "</table>";
@@ -445,7 +486,7 @@ async function handleReceipt(file) {
 }
 async function saveReceipt() {
   for (const r of receiptRows.filter(x => x.include && x.name)) {
-    await addPantryItem({ name: r.name, category: "Other", quantity: Number(r.qty) || 1, unit: "pcs", storage: "Pantry", total_price: r.price ? Number(r.price) : null, purchase_date: today() });
+    await addPhase2Item({ name: r.name, category: guessCategory(r.name), quantity: Number(r.qty) || 1, unit: "pcs", storage: "Pantry", cost_per_unit: r.price && Number(r.qty) ? Number(r.price) / Number(r.qty) : null, purchase_date: today() });
   }
   if (!demoMode) await loadCloud();
   alert("Saved checked receipt items to pantry."); show("pantry");
@@ -718,26 +759,12 @@ function guessCategory(name) {
   return "Other";
 }
 function parseReceiptText(text) {
-  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-  const items = [];
-  for (const line of lines) {
-    if (/^(total|tax|subtotal|discount|change|cash|card|store|walmart|patel|date)/i.test(line)) continue;
-    // Embedded quantity: "TOOR DAL 2 KG 4.99" -> qty 2, unit kg, total 4.99
-    const mq = line.match(/^(.*?)\s+(\d+\.?\d*)\s*(KG|G|LB|OZ|L|ML|PCS)\s+(\d+\.?\d*)\s*$/i);
-    if (mq) {
-      const raw = mq[1].trim(), qty = Number(mq[2]), unit = mq[3].toLowerCase(), total = Number(mq[4]);
-      const clean = raw.split(/\s+/).map(w => ABBR[w.toUpperCase()] || w).join(" ").replace(/\b\w/g, c => c.toUpperCase());
-      items.push({ raw_text: line, clean_name: clean, quantity: qty, unit, unit_price: qty ? total / qty : total, total, category: guessCategory(clean), include: true });
-      continue;
-    }
-    const m = line.match(/^(.*?)\s+(\d+\.?\d*)\s*$/);
-    if (!m) continue;
-    const raw = m[1].trim(), total = Number(m[2]);
-    if (!raw || total <= 0) continue;
-    const clean = raw.split(/\s+/).map(w => ABBR[w.toUpperCase()] || w).join(" ").replace(/\b\w/g, c => c.toUpperCase());
-    items.push({ raw_text: raw, clean_name: clean, quantity: 1, unit: "pcs", unit_price: total, total, category: guessCategory(clean), include: true });
-  }
-  return items;
+  // Same smart parser as the old receipt screen: wrapped lines joined,
+  // price-only lines attached to the item above, "N x" as quantity.
+  return parseSmartReceipt(text).filter(r => r.total != null && r.total > 0).map(r => {
+    const clean = r.name.split(/\s+/).map(w => ABBR[w.toUpperCase()] || w).join(" ").replace(/\b\w/g, c => c.toUpperCase());
+    return { raw_text: r.name, clean_name: clean, quantity: r.qty, unit: r.unit, unit_price: r.unit_price != null ? r.unit_price : r.total, total: r.total, category: guessCategory(clean), include: true };
+  });
 }
 function updateReceiptTotals() {
   receiptReview.forEach((r, i) => { const el = $(`rt-${i}`); if (el) el.textContent = (Number(r.quantity) * Number(r.unit_price)).toFixed(2); });
