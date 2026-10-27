@@ -693,7 +693,12 @@ async function loadHouseholdRecipes() {
       const { data: ings } = await sb.from("recipe_ingredients").select("*").in("recipe_id", ids);
       (ings || []).forEach(x => { (ingMap[x.recipe_id] = ingMap[x.recipe_id] || []).push(x.ingredient_name); (ingAmtMap[x.recipe_id] = ingAmtMap[x.recipe_id] || []).push({ name: x.ingredient_name, amount: x.amount, unit: x.unit }); });
     }
-    const seeded = recipes.filter(r => r.seeded);
+    // v23 fix was incomplete: loadCloud had just overwritten recipes
+    // with raw household rows (seeded=false), so filtering the current
+    // list for seeded recipes found none and they vanished after any
+    // loadCloud call (e.g. Add missing to shopping). Seeded recipes
+    // must always come from SEED_RECIPES, never from the overwritten list.
+    const seeded = SEED_RECIPES.map((r, i) => ({ ...r, id: "seed-" + i, seeded: true }));
     recipes = [...seeded, ...data.map(r => ({ ...r, category: r.meal_type || "Main", minutes: r.cooking_time_minutes, ingredients: ingMap[r.id] || [], _ings: ingAmtMap[r.id] || [] }))];
     renderRecipes(); renderKitchen();
   }
