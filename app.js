@@ -229,9 +229,12 @@ async function joinHousehold() {
   if (!user) return showLogin();
   const code = $("hhJoinCode").value.trim().toUpperCase(); if (!code) return alert("Enter an invite code.");
   if (demoMode) { currentHousehold = { id: "demo-hh", name: "Joined household", invite_code: code }; renderHousehold(); return show("household"); }
-  const h = await sb.from("households").select("*").eq("invite_code", code).single();
-  if (h.error || !h.data) return alert("No household found for that invite code.");
-  const mem = await sb.from("members").insert({ household_id: h.data.id, user_id: user.id, role: "member" });
+  // Join must NOT select households directly: a non-member cannot read
+  // a household under RLS. Use the invite-code function instead — it
+  // returns only the household whose code matches exactly.
+  const h = await sb.rpc("get_household_by_code", { p_code: code });
+  if (h.error || !h.data || !h.data.length) return alert("No household found for that invite code.");
+  const mem = await sb.from("members").insert({ household_id: h.data[0].id, user_id: user.id, role: "member" });
   if (mem.error) return alert("Could not join household: " + mem.error.message);
   await loadHousehold(); renderHousehold(); show("household");
 }
