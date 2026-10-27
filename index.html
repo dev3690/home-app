@@ -23,13 +23,14 @@
 <div class="login-wrap"><div class="login-card">
 <h1>Home</h1>
 <p class="tag">Your family's pantry, shopping and kitchen — in one calm place.</p>
-<p class="muted">Log in with your phone number and password. Each family member has their own login, and everyone sees the same shared household.</p>
-<label>Phone number</label><input id="phone" type="tel" autocomplete="tel" placeholder="e.g. 6175550123">
-<label>Your name</label><input id="displayName" autocomplete="name" placeholder="e.g. Dev">
+<p class="muted">Each family member has their own login, and everyone sees the same shared household.</p>
+<div class="seg" style="margin:12px 0"><button id="tabLogin" class="active" onclick="setAuthMode('login')">Log in</button><button id="tabSignup" onclick="setAuthMode('signup')">Create account</button></div>
+<label>Phone number</label><input id="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="e.g. 6175550123" maxlength="10">
+<p class="muted" style="margin-top:4px">Enter 10 digits only — no spaces, hyphens, or +1.</p>
+<div id="nameField" class="hidden"><label>Your name</label><input id="displayName" autocomplete="name" placeholder="e.g. Dev"></div>
 <label>Password</label><input id="pass" type="password" autocomplete="current-password" placeholder="At least 6 characters">
-<button class="primary" onclick="doAuth('login')">Log in</button>
-<button class="secondary" onclick="doAuth('signup')">Create account</button>
-<p class="muted" style="text-align:center">First time? Use Create account. Afterwards, use Log in.<br>Please don't share passwords in chat — set them here.</p>
+<button id="authSubmit" class="primary" onclick="doAuth(authMode)">Log in</button>
+<p id="authHint" class="muted" style="text-align:center">Returning? Just enter your number and password.<br>Please don't share passwords in chat — set them here.</p>
 </div></div>
 </section>
 

@@ -8,6 +8,17 @@
 
 let sb = null, demoMode = true, user = null, pantry = [], shopping = [];
 let receiptRows = [];
+let authMode = "login";
+function setAuthMode(mode) {
+  authMode = mode;
+  $("tabLogin").classList.toggle("active", mode === "login");
+  $("tabSignup").classList.toggle("active", mode === "signup");
+  $("nameField").classList.toggle("hidden", mode !== "signup");
+  $("authSubmit").textContent = mode === "signup" ? "Create account" : "Log in";
+  $("authHint").innerHTML = mode === "signup"
+    ? "First time? Enter your name, 10-digit number, and password."
+    : "Returning? Just enter your number and password.";
+}
 
 const $ = (id) => document.getElementById(id);
 const digits = (p) => (p || "").replace(/\D/g, "");
@@ -16,6 +27,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const daysUntil = (d) => d ? Math.round((new Date(d) - new Date(today())) / 86400000) : null;
 
 function showLogin() {
+  if ($("tabLogin")) setAuthMode("login");
   $("view-login").classList.remove("hidden");
   $("appPages").classList.add("hidden");
   $("appHeader").classList.add("hidden");
@@ -83,7 +95,8 @@ async function loadCloud() {
 
 async function doAuth(mode) {
   const phone = $("phone").value.trim(), pass = $("pass").value, name = $("displayName").value.trim();
-  if (digits(phone).length < 10) return alert("Enter a full phone number.");
+  if (!/^\d{10}$/.test(phone)) return alert("Phone number must be exactly 10 digits — no spaces, hyphens, or +1.");
+  if (mode === "signup" && !name) return alert("Please enter your name to create an account.");
   if (pass.length < 6) return alert("Password must be at least 6 characters.");
   if (demoMode) {
     user = { phone, name: name || phone };

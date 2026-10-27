@@ -40,6 +40,9 @@ table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px;bord
 /* Separate login page — centred, calm, no app chrome visible */
 .login-wrap{min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center;padding:24px 16px}
 .login-card{width:100%;max-width:420px;background:#fff;border-radius:28px;padding:28px 24px;box-shadow:0 12px 40px rgba(0,0,0,.08);border:1px solid var(--line);text-align:left}
+.login-card .seg{display:flex;background:#e8e8ed;border-radius:12px;padding:3px;gap:3px}
+.login-card .seg button{flex:1;border:0;background:transparent;color:var(--text);padding:9px 6px;border-radius:9px;font-size:15px;font-weight:500;cursor:pointer}
+.login-card .seg button.active{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.12);font-weight:600}
 .login-card h1{font-size:32px;letter-spacing:-.03em;margin:0 0 4px}
 .login-card .tag{font-size:17px;color:var(--muted);margin-bottom:18px}
 .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center}
