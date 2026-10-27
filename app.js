@@ -202,7 +202,8 @@ async function doAuth(mode) {
   user = res.data.user;
   if (mode === "signup") await sb.from("profiles").upsert({ id: user.id, phone: loginMethod === "phone" ? phone : null, email: loginMethod === "email" ? email : null, display_name: name || phone || email });
   $("who").textContent = "Shared household";
-  await loadCloud(); await loadHousehold(); await loadInventory(); showApp(); show(currentHousehold ? "dashboard" : "household");
+  try { await loadCloud(); } catch (e) { /* a render/load error must not block login */ }
+  await loadHousehold(); await loadInventory(); showApp(); show(currentHousehold ? "dashboard" : "household");
 }
 async function loadHousehold() {
   currentHousehold = null; householdMembers = [];
@@ -292,7 +293,12 @@ async function addPantryItem(it) {
 }
 
 function renderPantry() {
-  const q = ($("pantrySearch").value || "").toLowerCase();
+  // Phase 2 replaced the old pantry screen with the inventory screen,
+  // so pantrySearch/pantryList no longer exist in the HTML. Guard here
+  // so a missing old element can never abort login (v13 bug: loadCloud
+  // called renderPantry before showApp, threw, and login stayed stuck).
+  if (!$("pantryList")) return;
+  const q = ($("pantrySearch")?.value || "").toLowerCase();
   const list = pantry.filter(i => i.name.toLowerCase().includes(q));
   $("pantryList").innerHTML = list.length ? list.map(i => `
     <div class="item"><div><b>${i.name}</b> <span class="badge">${i.category}</span> <span class="badge">${i.storage}</span><br>
@@ -365,6 +371,7 @@ async function delPantry(id) {
 }
 
 function renderDashboard() {
+  if (!$("dashCounts") || !$("dashFlags")) return;
   const src = (currentHousehold && inventoryItems.length) ? inventoryItems : pantry;
   const low = src.filter(i => i.level === "low" || i.level === "empty" || (!i.level && Number(i.quantity) <= Number(i.low_threshold ?? 1)));
   const exp = pantry.filter(i => { const d = daysUntil(i.expiry_date); return d !== null && d <= 7; });
@@ -390,6 +397,7 @@ function renderDashboard() {
 
 // ---- Shopping ----
 async function renderShopping() {
+  if (!$("shopList")) return;
   $("shopList").innerHTML = shopping.length ? shopping.map(s => `
     <div class="item"><div><input type="checkbox" ${s.checked ? "checked" : ""} onchange="toggleShop('${s.id}', this.checked)"> <b>${s.name}</b> — ${s.quantity} ${s.unit} <span class="muted">(${s.category}${s.added_by ? " • " + s.added_by : ""})</span></div>
     <button class="small" onclick="delShop('${s.id}')">Remove</button></div>`).join("")
