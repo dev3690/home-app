@@ -273,10 +273,10 @@ async function addPantryItem(it) {
     purchase_date: it.purchase_date || null,
     added_by: user?.phone || user?.name || "family"
   };
-  if (demoMode) { row.id = Date.now().toString(); row.created_at = new Date().toISOString(); pantry.push(row); saveLocal(); }
+  if (demoMode) { row.id = Date.now().toString(); row.created_at = new Date().toISOString(); pantry.push(row); saveLocal(); return true; }
   else {
     const { data, error } = await sb.from("pantry_items").insert(row).select().single();
-    if (error) return alert(error.message);
+    if (error) { alert(error.message); return false; }
     if (it.total_price || it.unit_price || it.store) {
       const lot = await sb.from("purchase_lots").insert({
         pantry_item_id: data.id, item_name: it.name, quantity: it.quantity, unit: it.unit,
@@ -289,9 +289,9 @@ async function addPantryItem(it) {
     // Refresh from the database — do NOT just re-render the old local list.
     // Realtime was not reliably enabled, so without this the new item
     // would not appear until a manual reload.
-    await loadCloud(); return;
+    await loadCloud(); return true;
   }
-  renderPantry(); renderDashboard();
+  renderPantry(); renderDashboard(); return true;
 }
 
 function renderPantry() {
@@ -485,11 +485,22 @@ async function handleReceipt(file) {
   $("saveReceiptBtn").classList.remove("hidden");
 }
 async function saveReceipt() {
+  // Fix for the "Save does nothing" report: previously this alerted
+  // "Saved" even if every insert failed, and when there was no
+  // household the items went to the old pantry table, which the new
+  // Pantry screen never showed. Now it counts real outcomes and
+  // says where the items went.
+  let saved = 0, failed = 0;
   for (const r of receiptRows.filter(x => x.include && x.name)) {
-    await addPhase2Item({ name: r.name, category: guessCategory(r.name), quantity: Number(r.qty) || 1, unit: "pcs", storage: "Pantry", cost_per_unit: r.price && Number(r.qty) ? Number(r.price) / Number(r.qty) : null, purchase_date: today() });
+    try {
+      const ok = await addPhase2Item({ name: r.name, category: guessCategory(r.name), quantity: Number(r.qty) || 1, unit: "pcs", storage: "Pantry", cost_per_unit: r.price && Number(r.qty) ? Number(r.price) / Number(r.qty) : null, purchase_date: today() });
+      if (ok === false) failed++; else saved++;
+    } catch (e) { failed++; }
   }
-  if (!demoMode) await loadCloud();
-  alert("Saved checked receipt items to pantry."); show("pantry");
+  if (!demoMode) { await loadCloud(); await loadInventory(); }
+  if (!saved) { alert("Nothing was saved — every item failed. Check any error message above and try again."); return; }
+  alert(`Saved ${saved} item(s) to pantry${!currentHousehold ? " (personal pantry — create a household to share them, then use Migrate on the Pantry screen)" : ""}.${failed ? ` ${failed} item(s) failed.` : ""}`);
+  show("pantry");
 }
 
 // ---- Ghar Pantry Phase 2: Inventory pantry ----
@@ -509,7 +520,19 @@ async function logInvEvent(invId, type, qtyChange, note) {
 function invDisplay(item) { return item.tracking_type === "level" ? "Level: " + (item.level || "full") : item.quantity + " " + item.unit; }
 function renderInventory() {
   if (!$("invList")) return;
-  if (!currentHousehold) { $("invList").innerHTML = "<p class='muted'>Create or join a household first, then your household pantry will show here. Your old pantry is still on the old Pantry screen data — use Migrate below after joining a household.</p>"; return; }
+  if (!currentHousehold) {
+    // Fix for the "Save does nothing" report: when there is no
+    // household, receipt/manual saves go to the old pantry table,
+    // so the Pantry screen must SHOW that old pantry instead of
+    // only saying "create a household". Otherwise saved items look
+    // lost. The Migrate button below moves them once a household
+    // exists.
+    const q = ($("invSearch")?.value || "").toLowerCase();
+    const list = pantry.filter(i => !q || i.name.toLowerCase().includes(q));
+    if ($("invExpiring")) $("invExpiring").innerHTML = "<p class='muted'>You are not in a household yet. Below are your personal pantry items. Create a household to share them, then use Migrate below to move them into the shared pantry.</p>";
+    $("invList").innerHTML = list.length ? list.map(i => `<div class="item"><div><b>${esc(i.name)}</b> <span class="badge">${esc(i.category || "Other")}</span> <span class="badge">${esc(i.storage || "Pantry")}</span><br><span class="muted">${i.level ? "Level: " + i.level : i.quantity + " " + (i.unit || "pcs")}${i.expiry_date ? " • Expires " + i.expiry_date : ""}</span></div><div><button class="small" onclick="markUsed('${i.id}')">Used</button><button class="small" onclick="delPantry('${i.id}')">Remove</button></div></div>`).join("") : "<p class='muted'>No pantry items yet. Add your first item.</p>";
+    return;
+  }
   const q = ($("invSearch")?.value || "").toLowerCase();
   const cat = $("invCatFilter")?.value || "", loc = $("invLocFilter")?.value || "";
   const list = inventoryItems.filter(i => (!q || i.name.toLowerCase().includes(q)) && (!cat || i.category === cat) && (!loc || i.storage === loc));
@@ -530,15 +553,16 @@ function renderInventory() {
 async function addInventoryItem(it) {
   if (!currentHousehold) return alert("Create or join a household first.");
   const row = { household_id: currentHousehold.id, name: it.name, category: it.category || "Other", quantity: it.quantity ?? 0, unit: it.unit || "pcs", storage: it.storage || "Pantry", brand: it.brand || null, tracking_type: it.level ? "level" : "exact", level: it.level || null, cost_per_unit: it.cost_per_unit || null, low_threshold: it.low_threshold ?? 1, purchase_date: it.purchase_date || null, expiry_date: it.expiry_date || null, added_by: user?.phone || "family" };
-  if (demoMode) { row.id = Date.now().toString(); inventoryItems.push(row); renderInventory(); return; }
+  if (demoMode) { row.id = Date.now().toString(); inventoryItems.push(row); renderInventory(); return true; }
   const res = await sb.from("inventory").insert(row).select().single();
-  if (res.error) return alert(res.error.message);
+  if (res.error) { alert(res.error.message); return false; }
   await logInvEvent(res.data.id, "bought", row.quantity, "Added to pantry");
   await loadInventory();
+  return true;
 }
 async function addPhase2Item(it) {
-  if (currentHousehold) { await addInventoryItem(it); return; }
-  await addPantryItem(it);
+  if (currentHousehold) return await addInventoryItem(it);
+  return await addPantryItem(it);
 }
 async function invUsed(id) {
   const item = inventoryItems.find(i => String(i.id) === String(id)); if (!item) return;
@@ -595,8 +619,10 @@ async function migrateOldPantry() {
   if (!currentHousehold) return alert("Create or join a household first.");
   if (!pantry.length) return alert("No old pantry items to migrate.");
   let count = 0;
+  const seen = new Set(inventoryItems.map(i => i.name.toLowerCase()));
   for (const p of pantry) {
-    if (inventoryItems.some(i => i.name.toLowerCase() === p.name.toLowerCase())) continue;
+    if (seen.has(p.name.toLowerCase())) continue;
+    seen.add(p.name.toLowerCase());
     const row = { household_id: currentHousehold.id, name: p.name, category: p.category || "Other", quantity: Number(p.quantity) || 0, unit: p.unit || "pcs", storage: p.storage || "Pantry", tracking_type: p.level ? "level" : "exact", level: p.level || null, low_threshold: 1, expiry_date: p.expiry_date || null, purchase_date: p.purchase_date || null, added_by: "migrated" };
     if (demoMode) { row.id = Date.now().toString() + count; inventoryItems.push(row); }
     else { const res = await sb.from("inventory").insert(row).select().single(); if (!res.error) await logInvEvent(res.data.id, "bought", row.quantity, "Migrated from old pantry"); }
