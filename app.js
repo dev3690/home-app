@@ -89,6 +89,8 @@ async function init() {
 async function loadCloud() {
   const p = await sb.from("pantry_items").select("*").order("name");
   const s = await sb.from("shopping_items").select("*").order("created_at");
+  if (p.error) { alert(p.error.message); return; }
+  if (s.error) { alert(s.error.message); return; }
   pantry = p.data || []; shopping = s.data || [];
   renderDashboard(); renderPantry(); renderShopping();
 }
@@ -135,12 +137,19 @@ async function addPantryItem(it) {
   else {
     const { data, error } = await sb.from("pantry_items").insert(row).select().single();
     if (error) return alert(error.message);
-    if (it.total_price || it.unit_price || it.store) await sb.from("purchase_lots").insert({
-      pantry_item_id: data.id, item_name: it.name, quantity: it.quantity, unit: it.unit,
-      unit_price: it.unit_price || null, total_price: it.total_price || null,
-      purchase_date: it.purchase_date || null, store: it.store || null,
-      added_by: row.added_by, paid_by: row.added_by
-    });
+    if (it.total_price || it.unit_price || it.store) {
+      const lot = await sb.from("purchase_lots").insert({
+        pantry_item_id: data.id, item_name: it.name, quantity: it.quantity, unit: it.unit,
+        unit_price: it.unit_price || null, total_price: it.total_price || null,
+        purchase_date: it.purchase_date || null, store: it.store || null,
+        added_by: row.added_by, paid_by: row.added_by
+      });
+      if (lot.error) alert("Pantry item saved, but price/store lot failed: " + lot.error.message);
+    }
+    // Refresh from the database — do NOT just re-render the old local list.
+    // Realtime was not reliably enabled, so without this the new item
+    // would not appear until a manual reload.
+    await loadCloud(); return;
   }
   renderPantry(); renderDashboard();
 }
@@ -156,9 +165,28 @@ function renderPantry() {
     : "<p class='muted'>No pantry items yet. Add your first item.</p>";
 }
 async function markUsed(id) {
-  if (demoMode) { const i = pantry.find(x => x.id === id); if (i) i.last_used_at = new Date().toISOString(); saveLocal(); }
-  else await sb.from("pantry_items").update({ last_used_at: new Date().toISOString() }).eq("id", id);
-  await (demoMode ? Promise.resolve() : loadCloud()); renderDashboard(); renderPantry();
+  // "Used" must visibly consume something. Previously it only set
+  // last_used_at (invisible), so it looked broken. Now: normal items lose
+  // 1 unit; level items step down full -> half -> low -> empty.
+  const item = pantry.find(x => String(x.id) === String(id));
+  if (!item) { await loadCloud(); return; }
+  let update = { last_used_at: new Date().toISOString() };
+  if (item.level) {
+    const steps = ["full", "half", "low", "empty"];
+    const next = steps[Math.min(steps.indexOf(item.level) + 1, 3)];
+    update.level = next >= 0 ? next : item.level;
+    if (demoMode) item.level = update.level;
+  } else {
+    update.quantity = Math.max(0, Number(item.quantity || 0) - 1);
+    if (demoMode) item.quantity = update.quantity;
+  }
+  if (demoMode) { item.last_used_at = update.last_used_at; saveLocal(); }
+  else {
+    const res = await sb.from("pantry_items").update(update).eq("id", id);
+    if (res.error) return alert(res.error.message);
+    await loadCloud();
+  }
+  renderDashboard(); renderPantry();
 }
 async function delPantry(id) {
   if (!confirm("Remove this pantry item?")) return;
@@ -232,6 +260,7 @@ async function saveReceipt() {
   for (const r of receiptRows.filter(x => x.include && x.name)) {
     await addPantryItem({ name: r.name, category: "Other", quantity: Number(r.qty) || 1, unit: "pcs", storage: "Pantry", total_price: r.price ? Number(r.price) : null, purchase_date: today() });
   }
+  if (!demoMode) await loadCloud();
   alert("Saved checked receipt items to pantry."); show("pantry");
 }
 

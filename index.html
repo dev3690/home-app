@@ -63,13 +63,13 @@
 <div><label>Total price ($, optional)</label><input id="mPrice" type="number" step="0.01"></div>
 <div><label>Store (optional)</label><input id="mStore"></div>
 </div>
-<button class="primary" onclick="addPantryItem({name:$('mName').value.trim(),category:$('mCat').value,quantity:Number($('mQty').value)||0,unit:$('mUnit').value,storage:$('mStorage').value,level:$('mLevel').value||null,expiry_date:$('mExp').value||null,purchase_date:today(),total_price:$('mPrice').value?Number($('mPrice').value):null,store:$('mStore').value});alert('Added to pantry.')">Add to pantry</button>
+<button class="primary" onclick="(async()=>{if(!$('mName').value.trim())return alert('Enter an item name.');await addPantryItem({name:$('mName').value.trim(),category:$('mCat').value,quantity:Number($('mQty').value)||0,unit:$('mUnit').value,storage:$('mStorage').value,level:$('mLevel').value||null,expiry_date:$('mExp').value||null,purchase_date:today(),total_price:$('mPrice').value?Number($('mPrice').value):null,store:$('mStore').value});alert('Added to pantry.');})()">Add to pantry</button>
 </div>
 
 <div class="card"><h2>Add many at once</h2>
 <p class="muted">One item per line, e.g. <i>Tomatoes, 2 kg, Fridge</i></p>
 <textarea id="bulk" rows="5" placeholder="Tomatoes, 2 kg, Fridge&#10;Milk, 1 gallon, Fridge"></textarea>
-<button class="primary" onclick="(()=>{document.getElementById('bulk').value.split('\n').filter(Boolean).forEach(async l=>{const p=l.split(',').map(s=>s.trim());const q=parseFloat(p[1])||1;await addPantryItem({name:p[0],category:'Other',quantity:q,unit:(p[1]||'').replace(/[\d.]/g,'').trim()||'pcs',storage:p[2]||'Pantry'});});alert('Bulk items added.');show('pantry');})()">Add all</button>
+<button class="primary" onclick="(async()=>{const lines=document.getElementById('bulk').value.split('\n').filter(Boolean);for(const l of lines){const p=l.split(',').map(s=>s.trim());const q=parseFloat(p[1])||1;await addPantryItem({name:p[0],category:'Other',quantity:q,unit:(p[1]||'').replace(/[\d.]/g,'').trim()||'pcs',storage:p[2]||'Pantry'});}alert('Bulk items added.');show('pantry');})()">Add all</button>
 </div>
 
 <div class="card"><h2>Receipt photo / PDF — review before saving</h2>
