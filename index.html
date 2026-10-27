@@ -2,12 +2,12 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home App — Pantry, Shopping & Dashboard (Phases 1–3)</title>
-<link rel="stylesheet" href="styles.css?v=15">
+<link rel="stylesheet" href="styles.css?v=16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
-<script src="config.js"></script><script src="app.js?v=15" defer></script>
+<script src="config.js"></script><script src="app.js?v=16" defer></script>
 </head><body>
 <header id="appHeader" class="hidden"><h1>Home</h1><span id="who" class="who"></span>
 <button class="textbtn" onclick="doLogout()">Log out</button></header>
@@ -18,6 +18,7 @@
 <button data-view="add" onclick="show('add')">Add</button>
 <button data-view="shopping" onclick="show('shopping')">Shopping</button>
 <button data-view="receipts" onclick="show('receipts')">Receipts</button>
+<button data-view="budget" onclick="show('budget')">Budget</button>
 <button data-view="recipes" onclick="show('recipes')">Recipes</button>
 <button data-view="kitchen" onclick="show('kitchen')">Kitchen Log</button>
 <button data-view="cook" onclick="show('cook')">What To Cook</button>
@@ -40,7 +41,7 @@
 <button class="secondary" onclick="doGoogle()">Continue with Google</button>
 <p class="muted" style="text-align:center">Google sign-in needs the Google provider turned on in Supabase. If it is not enabled yet, use phone or email for now.</p>
 <p id="authHint" class="muted" style="text-align:center">Returning? Just enter your number and password.<br>Please don't share passwords in chat — set them here.</p>
-<p class="muted" style="text-align:center">App version v15 — Ghar Pantry Phase 3 (receipts)</p>
+<p class="muted" style="text-align:center">App version v16 — Ghar Pantry Phase 4 (budget)</p>
 </div></div>
 </section>
 
@@ -163,6 +164,26 @@
 <button class="secondary" onclick="loadSampleReceipt()">Load sample messy receipt (ORG BNNA / GV WHL MLK)</button>
 <div id="receipt3Table" style="margin-top:12px"></div>
 <button class="primary" onclick="savePhase3Receipt()">Save receipt (one transaction)</button></div>
+</section>
+
+<section id="view-budget" class="hidden">
+<div class="card"><h2>Budget — Phase 4</h2>
+<p class="muted">Weekly budget is the main one (week starts Monday, as set in your household). Alerts are in-app only for now — email alerts need an email service key, not yet configured. Alerts are created automatically when an expense is saved.</p>
+<h3>Set a budget</h3>
+<div class="grid"><div><label>Period</label><select id="bPeriod"><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+<div><label>Category (blank = overall)</label><select id="bCat"><option value="">Overall</option><option>Dal and Pulses</option><option>Atta and Flour</option><option>Rice</option><option>Masala</option><option>Dry Fruits</option><option>Oil and Ghee</option><option>Dairy</option><option>Vegetables</option><option>Fruits</option><option>Snacks</option><option>Frozen</option><option>Household</option><option>Groceries</option><option>Other</option></select></div>
+<div><label>Limit ($)</label><input id="bLimit" type="number" step="0.01"></div>
+<div><label>Week starts</label><select id="bWeek"><option>Monday</option><option>Sunday</option></select></div></div>
+<label><input id="bRollover" type="checkbox"> Rollover unused amount</label><br>
+<button class="primary" onclick="saveBudget()">Save budget</button>
+<h3>Add an expense (manual)</h3>
+<div class="grid"><div><label>Amount ($)</label><input id="eAmt" type="number" step="0.01"></div>
+<div><label>Category</label><select id="eCat"><option>Groceries</option><option>Dal and Pulses</option><option>Dairy</option><option>Vegetables</option><option>Fruits</option><option>Household</option><option>Other</option></select></div>
+<div><label>Store</label><input id="eStore"></div><div><label>Date</label><input id="eDate" type="date"></div></div>
+<label>Note</label><input id="eNote">
+<button class="primary" onclick="saveExpense()">Save expense</button>
+<div id="budgetDash" style="margin-top:12px"></div>
+<div id="budgetAlerts" style="margin-top:12px"></div></div>
 </section>
 
 <section id="view-shopping" class="hidden">

@@ -78,7 +78,7 @@ function showApp() {
 function show(view) {
   if (!user) return showLogin();
   showApp();
-  ["dashboard", "pantry", "add", "shopping", "recipes", "kitchen", "cook", "household", "receipts"].forEach(v => { const el = $(`view-${v}`); if (el) el.classList.toggle("hidden", v !== view); });
+  ["dashboard", "pantry", "add", "shopping", "recipes", "kitchen", "cook", "household", "receipts", "budget"].forEach(v => { const el = $(`view-${v}`); if (el) el.classList.toggle("hidden", v !== view); });
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
   if (view === "dashboard") renderDashboard();
   if (view === "pantry") renderInventory();
@@ -88,6 +88,7 @@ function show(view) {
   if (view === "cook") renderCook();
   if (view === "household") renderHousehold();
   if (view === "receipts") renderReceiptReview();
+  if (view === "budget") loadBudget();
 }
 
 function loadLocal() {
@@ -721,6 +722,14 @@ function parseReceiptText(text) {
   const items = [];
   for (const line of lines) {
     if (/^(total|tax|subtotal|discount|change|cash|card|store|walmart|patel|date)/i.test(line)) continue;
+    // Embedded quantity: "TOOR DAL 2 KG 4.99" -> qty 2, unit kg, total 4.99
+    const mq = line.match(/^(.*?)\s+(\d+\.?\d*)\s*(KG|G|LB|OZ|L|ML|PCS)\s+(\d+\.?\d*)\s*$/i);
+    if (mq) {
+      const raw = mq[1].trim(), qty = Number(mq[2]), unit = mq[3].toLowerCase(), total = Number(mq[4]);
+      const clean = raw.split(/\s+/).map(w => ABBR[w.toUpperCase()] || w).join(" ").replace(/\b\w/g, c => c.toUpperCase());
+      items.push({ raw_text: line, clean_name: clean, quantity: qty, unit, unit_price: qty ? total / qty : total, total, category: guessCategory(clean), include: true });
+      continue;
+    }
     const m = line.match(/^(.*?)\s+(\d+\.?\d*)\s*$/);
     if (!m) continue;
     const raw = m[1].trim(), total = Number(m[2]);
@@ -729,6 +738,10 @@ function parseReceiptText(text) {
     items.push({ raw_text: raw, clean_name: clean, quantity: 1, unit: "pcs", unit_price: total, total, category: guessCategory(clean), include: true });
   }
   return items;
+}
+function updateReceiptTotals() {
+  receiptReview.forEach((r, i) => { const el = $(`rt-${i}`); if (el) el.textContent = (Number(r.quantity) * Number(r.unit_price)).toFixed(2); });
+  const el = $("receiptCheckedTotal"); if (el) el.textContent = receiptReview.filter(r => r.include).reduce((s, r) => s + Number(r.quantity) * Number(r.unit_price), 0).toFixed(2);
 }
 function loadSampleReceipt() {
   receiptReview = parseReceiptText("ORG BNNA 1.29\nGV WHL MLK 3.49\nTOOR DAL 2 KG 4.99\nTOTAL 9.77");
@@ -763,13 +776,13 @@ async function handlePhase3Receipt(file) {
 }
 function renderReceiptReview() {
   if (!$("receipt3Table")) return;
-  $("receipt3Table").innerHTML = receiptReview.length ? "<table><tr><th>Use</th><th>Raw</th><th>Clean name</th><th>Qty</th><th>Unit price ($)</th><th>Total ($)</th></tr>" +
-    receiptReview.map((r, i) => `<tr><td><input type="checkbox" ${r.include ? "checked" : ""} onchange="receiptReview[${i}].include=this.checked"></td><td>${esc(r.raw_text)}</td><td><input value="${esc(r.clean_name)}" onchange="receiptReview[${i}].clean_name=this.value"></td><td><input type="number" step="0.01" value="${r.quantity}" onchange="receiptReview[${i}].quantity=this.value"></td><td><input type="number" step="0.01" value="${r.unit_price}" onchange="receiptReview[${i}].unit_price=this.value"></td><td>${(Number(r.quantity) * Number(r.unit_price)).toFixed(2)}</td></tr>`).join("") + "</table>" +
-    `<p class="muted">Total of checked items: $${receiptReview.filter(r => r.include).reduce((s, r) => s + Number(r.quantity) * Number(r.unit_price), 0).toFixed(2)}</p>` : "<p class='muted'>No receipt items yet. Upload a receipt, or load the sample messy receipt.</p>";
+  $("receipt3Table").innerHTML = receiptReview.length ? "<table><tr><th>Use</th><th>Raw</th><th>Clean name</th><th>Qty</th><th>Unit</th><th>Unit price ($)</th><th>Total ($)</th></tr>" +
+    receiptReview.map((r, i) => `<tr><td><input type="checkbox" ${r.include ? "checked" : ""} onchange="receiptReview[${i}].include=this.checked; updateReceiptTotals()"></td><td>${esc(r.raw_text)}</td><td><input value="${esc(r.clean_name)}" onchange="receiptReview[${i}].clean_name=this.value"></td><td><input type="number" step="0.01" value="${r.quantity}" onchange="receiptReview[${i}].quantity=this.value; updateReceiptTotals()"></td><td>${esc(r.unit || "pcs")}</td><td><input type="number" step="0.01" value="${r.unit_price}" onchange="receiptReview[${i}].unit_price=this.value; updateReceiptTotals()"></td><td id="rt-${i}">${(Number(r.quantity) * Number(r.unit_price)).toFixed(2)}</td></tr>`).join("") + "</table>" +
+    `<p class="muted">Total of checked items: $<span id="receiptCheckedTotal">${receiptReview.filter(r => r.include).reduce((s, r) => s + Number(r.quantity) * Number(r.unit_price), 0).toFixed(2)}</span></p>` : "<p class='muted'>No receipt items yet. Upload a receipt, or load the sample messy receipt.</p>";
 }
 async function savePhase3Receipt() {
   if (!currentHousehold) return alert("Create or join a household first.");
-  const items = receiptReview.filter(r => r.include && r.clean_name).map(r => ({ raw_text: r.raw_text, clean_name: r.clean_name, quantity: Number(r.quantity) || 1, unit: "pcs", unit_price: Number(r.unit_price) || 0, total: (Number(r.quantity) || 1) * (Number(r.unit_price) || 0), category: guessCategory(r.clean_name) }));
+  const items = receiptReview.filter(r => r.include && r.clean_name).map(r => ({ raw_text: r.raw_text, clean_name: r.clean_name, quantity: Number(r.quantity) || 1, unit: r.unit || "pcs", unit_price: Number(r.unit_price) || 0, total: (Number(r.quantity) || 1) * (Number(r.unit_price) || 0), category: guessCategory(r.clean_name) }));
   if (!items.length) return alert("No items checked to save.");
   const total = items.reduce((s, i) => s + i.total, 0);
   const store = $("rStore")?.value || receiptStore || "Store";
@@ -780,6 +793,51 @@ async function savePhase3Receipt() {
   alert(`Receipt saved. Receipt ID: ${res.data}. Inventory, expense, and aliases updated in one transaction.`);
   receiptReview = []; receiptStoragePath = null; renderReceiptReview(); await loadInventory();
 }
+
+// ---- Ghar Pantry Phase 4: Budget ----
+function weekBounds(d) { const dt = new Date(d); const day = (dt.getDay() + 6) % 7; const s = new Date(dt); s.setDate(dt.getDate() - day); const e = new Date(s); e.setDate(s.getDate() + 6); return [s, e]; }
+function iso(d) { return d.toISOString().slice(0, 10); }
+async function saveBudget() {
+  if (!currentHousehold) return alert("Create or join a household first.");
+  const period = $("bPeriod").value, category = $("bCat").value || null, limit = Number($("bLimit").value);
+  if (!limit || limit <= 0) return alert("Enter a limit amount.");
+  if (demoMode) return alert("Demo mode: budget would be saved live in the app.");
+  const { data: old } = await sb.from("budgets").select("id,category").eq("household_id", currentHousehold.id).eq("period", period);
+  for (const o of (old || [])) if ((o.category || null) === category) await sb.from("budgets").delete().eq("id", o.id);
+  const res = await sb.from("budgets").insert({ household_id: currentHousehold.id, period, category, limit_amount: limit, week_start_day: $("bWeek").value, rollover: $("bRollover").checked });
+  if (res.error) return alert("Budget save failed: " + res.error.message);
+  alert("Budget saved."); await loadBudget();
+}
+async function saveExpense() {
+  if (!currentHousehold) return alert("Create or join a household first.");
+  const amt = Number($("eAmt").value);
+  if (!amt || amt <= 0) return alert("Enter an amount.");
+  if (demoMode) return alert("Demo mode: expense would be saved live in the app.");
+  const res = await sb.from("expenses").insert({ household_id: currentHousehold.id, amount: amt, category: $("eCat").value, store_name: $("eStore").value || null, expense_date: $("eDate").value || today(), note: $("eNote").value || null, paid_by: (await sb.auth.getUser()).data.user?.id });
+  if (res.error) return alert("Expense save failed: " + res.error.message);
+  alert("Expense saved. Budget alerts are checked automatically on save."); await loadBudget();
+}
+async function loadBudget() {
+  if (!$("budgetDash") || !currentHousehold) return;
+  const { data: budgets } = await sb.from("budgets").select("*").eq("household_id", currentHousehold.id);
+  const { data: expenses } = await sb.from("expenses").select("*").eq("household_id", currentHousehold.id).order("expense_date", { ascending: false });
+  const { data: notes } = await sb.from("notifications").select("*").eq("household_id", currentHousehold.id).order("created_at", { ascending: false }).limit(20);
+  const [ws, we] = weekBounds(new Date()); const [lws, lwe] = weekBounds(new Date(Date.now() - 7 * 86400000));
+  const inRange = (e, s, e2) => e.expense_date >= iso(s) && e.expense_date <= iso(e2);
+  const sum = arr => arr.reduce((s, e) => s + Number(e.amount), 0);
+  const thisW = sum(expenses.filter(e => inRange(e, ws, we))), lastW = sum(expenses.filter(e => inRange(e, lws, lwe)));
+  const byCat = {}, byStore = {}, byPerson = {};
+  expenses.filter(e => inRange(e, ws, we)).forEach(e => { byCat[e.category] = (byCat[e.category] || 0) + Number(e.amount); byStore[e.store_name || "No store"] = (byStore[e.store_name || "No store"] || 0) + Number(e.amount); byPerson[(e.paid_by || "unknown").slice(0, 8)] = (byPerson[(e.paid_by || "unknown").slice(0, 8)] || 0) + Number(e.amount); });
+  const bars = (budgets || []).map(b => {
+    const total = b.period === "weekly" ? sum(expenses.filter(e => inRange(e, ws, we) && (!b.category || e.category === b.category))) : sum(expenses.filter(e => e.expense_date.slice(0, 7) === today().slice(0, 7) && (!b.category || e.category === b.category)));
+    const pct = Math.min(100, Math.round(total / Number(b.limit_amount) * 100));
+    return `<div class="card"><b>${b.period} ${b.category || "overall"}</b>: $${total.toFixed(2)} / $${Number(b.limit_amount).toFixed(2)} (${pct}%)<div style="background:#e5e5ea;border-radius:8px;height:16px"><div style="background:${pct >= 100 ? "#ff3b30" : pct >= 80 ? "#ff9500" : "#0071e3"};width:${pct}%;height:16px;border-radius:8px"></div></div>${pct >= 100 ? "<p>Over budget.</p>" : pct >= 80 ? "<p>80% reached.</p>" : pct >= 50 ? "<p>50% reached.</p>" : ""}</div>`;
+  }).join("");
+  const under = (new Date().getDay() === 0 && (budgets || []).some(b => b.period === "weekly" && thisW < Number(b.limit_amount))) ? "<div class='card'><p>Under budget this week — well done.</p></div>" : "";
+  $("budgetDash").innerHTML = `<div class="card"><b>This week (${iso(ws)} to ${iso(we)}): $${thisW.toFixed(2)}</b> • Last week: $${lastW.toFixed(2)}</div>${bars}${under}<div class="card"><h3>This week by category</h3>${Object.entries(byCat).map(([k, v]) => `<div>${esc(k)}: $${v.toFixed(2)}</div>`).join("") || "<p class='muted'>No expenses this week yet.</p>"}<h3>By store</h3>${Object.entries(byStore).map(([k, v]) => `<div>${esc(k)}: $${v.toFixed(2)}</div>`).join("")}<h3>By person (ID prefix)</h3>${Object.entries(byPerson).map(([k, v]) => `<div>${esc(k)}: $${v.toFixed(2)}</div>`).join("")}</div>`;
+  $("budgetAlerts").innerHTML = `<div class="card"><h3>Budget alerts (in-app)</h3>${(notes || []).length ? notes.map(n => `<div>${esc(n.type || "")}: ${esc(n.message)} ${n.is_read ? "" : `<button class="small" onclick="markNoteRead('${n.id}')">Mark read</button>`}</div>`).join("") : "<p class='muted'>No alerts yet. Alerts appear here when a budget crosses 50%, 80%, or 100%, or a pace warning fires.</p>"}</div>`;
+}
+async function markNoteRead(id) { await sb.from("notifications").update({ is_read: true }).eq("id", id); await loadBudget(); }
 
 // ---- Forms (wired in index.html) ----
 document.addEventListener("DOMContentLoaded", init);
