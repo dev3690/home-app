@@ -2,12 +2,12 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home App — Pantry, Shopping & Dashboard (Phases 1–3)</title>
-<link rel="stylesheet" href="styles.css?v=19">
+<link rel="stylesheet" href="styles.css?v=20">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
-<script src="config.js"></script><script src="app.js?v=19" defer></script>
+<script src="config.js"></script><script src="app.js?v=20" defer></script>
 </head><body>
 <header id="appHeader" class="hidden"><h1>Home</h1><span id="who" class="who"></span>
 <button class="textbtn" onclick="doLogout()">Log out</button></header>
@@ -41,7 +41,7 @@
 <button class="secondary" onclick="doGoogle()">Continue with Google</button>
 <p class="muted" style="text-align:center">Google sign-in needs the Google provider turned on in Supabase. If it is not enabled yet, use phone or email for now.</p>
 <p id="authHint" class="muted" style="text-align:center">Returning? Just enter your number and password.<br>Please don't share passwords in chat — set them here.</p>
-<p class="muted" style="text-align:center">App version v19 — Receipt save fix (no-household pantry visible)</p>
+<p class="muted" style="text-align:center">App version v20 — Ghar Pantry Phase 5 (kitchen log + cost per meal)</p>
 </div></div>
 </section>
 
@@ -132,19 +132,28 @@
 <div id="recipeList" style="margin-top:12px"></div></div>
 <div class="card"><h2>Add a family recipe</h2>
 <div class="grid"><div><label>Dish name</label><input id="rName"></div><div><label>Gujarati name</label><input id="rGuj"></div>
-<div><label>Category</label><input id="rCat" value="Main"></div><div><label>Minutes</label><input id="rMin" type="number"></div></div>
-<div><label>Ingredients (comma-separated, pantry names)</label><input id="rIng" placeholder="Rice, Moong Dal, Ginger"></div>
+<div><label>Category</label><input id="rCat" value="Main"></div><div><label>Minutes</label><input id="rMin" type="number"></div>
+<div><label>Cuisine</label><input id="rCuisine" placeholder="e.g. Gujarati"></div><div><label>Meal type</label><select id="rMealType"><option>Main</option><option>Breakfast</option><option>Lunch</option><option>Dinner</option><option>Snack</option></select></div></div>
+<div><label>Ingredients with amounts (one per line or comma-separated, e.g. Rice:2:kg, Moong Dal:0.5:kg — amounts are for 4 servings)</label><input id="rIng" placeholder="Rice:2:kg, Moong Dal:0.5:kg"></div>
 <div><label>Steps</label><textarea id="rSteps" rows="3"></textarea></div>
 <label><input type="checkbox" id="rGreen"> Contains green vegetables (not for tithi)</label>
+<label><input type="checkbox" id="rFav"> Favorite</label>
 <button class="primary" onclick="addRecipe()">Add recipe</button></div>
 </section>
 
 <section id="view-kitchen" class="hidden">
-<div class="card"><h2>Kitchen log</h2>
-<div class="grid"><div><label>Date</label><input id="kitchenDate" type="date"></div><div><label>Recipe</label><select id="kitchenRecipe"></select></div>
-<div><label>Or custom dish</label><input id="kDish" placeholder="e.g. Khichdi"></div><div><label>Servings</label><input id="kServings" type="number" value="4"></div></div>
+<div class="card"><h2>Kitchen log — Phase 5</h2>
+<p class="muted">Pick a recipe or type a custom dish, set servings, edit the ingredient amounts to deduct, then log. Deductions come out of your household pantry, and the meal cost is amount used × cost per unit. If any item has no price, the cost is marked "estimated". Recipe amounts are for 4 servings and scale with servings.</p>
+<div class="grid"><div><label>Date</label><input id="kitchenDate" type="date"></div><div><label>Recipe</label><select id="kitchenRecipe" onchange="prefillMealFromRecipe()"></select></div>
+<div><label>Or custom dish</label><input id="kDish" placeholder="e.g. Khichdi"></div><div><label>Servings</label><input id="kServings" type="number" value="4" onchange="rescaleMealIngredients()"></div>
+<div><label>Meal type</label><select id="kMealType"><option>Main</option><option>Breakfast</option><option>Lunch</option><option>Dinner</option><option>Snack</option></select></div>
+<div><label>Leftovers (optional)</label><input id="kLeftovers" placeholder="e.g. Saved 2 servings for tomorrow"></div></div>
 <div><label>Notes</label><input id="kNotes"></div>
-<button class="primary" onclick="logMeal($('kDish').value.trim() || ($('kitchenRecipe').selectedOptions[0]?.textContent || 'Custom dish'), '', Number($('kServings').value)||null, $('kNotes').value)">Log meal</button>
+<h3>Ingredients to deduct (edit before logging)</h3>
+<div id="mealIngTable"></div>
+<button class="secondary" onclick="addMealIngRow()">Add ingredient row</button>
+<button class="primary" onclick="logMealWithDeductions()">Log meal with deductions</button>
+<button class="secondary" onclick="logMeal($('kDish').value.trim() || ($('kitchenRecipe').selectedOptions[0]?.textContent || 'Custom dish'), '', Number($('kServings').value)||null, $('kNotes').value)">Quick log (no deductions)</button>
 <div id="kitchenList" style="margin-top:12px"></div></div>
 </section>
 

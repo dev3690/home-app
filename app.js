@@ -84,7 +84,7 @@ function show(view) {
   if (view === "pantry") renderInventory();
   if (view === "shopping") renderShopping();
   if (view === "recipes") renderRecipes();
-  if (view === "kitchen") renderKitchen();
+  if (view === "kitchen") { renderKitchen(); loadMeals(); renderMealIngTable(); }
   if (view === "cook") renderCook();
   if (view === "household") renderHousehold();
   if (view === "receipts") renderReceiptReview();
@@ -205,7 +205,7 @@ async function doAuth(mode) {
   if (mode === "signup") await sb.from("profiles").upsert({ id: user.id, phone: loginMethod === "phone" ? phone : null, email: loginMethod === "email" ? email : null, display_name: name || phone || email });
   $("who").textContent = "Shared household";
   try { await loadCloud(); } catch (e) { /* a render/load error must not block login */ }
-  await loadHousehold(); await loadInventory(); showApp(); show(currentHousehold ? "dashboard" : "household");
+  await loadHousehold(); await loadInventory(); await loadHouseholdRecipes(); await loadMeals(); showApp(); show(currentHousehold ? "dashboard" : "household");
 }
 async function loadHousehold() {
   currentHousehold = null; householdMembers = [];
@@ -646,17 +646,44 @@ function renderRecipes() {
     ${r.seeded ? "" : `<button class="small" onclick="delRecipe('${r.id}')">Remove</button>`}</div></div>`).join("")
     : "<p class='muted'>No recipes yet. Add your first family recipe below.</p>";
 }
+function parseIngAmounts(text) {
+  // "Rice:2:kg, Moong Dal:0.5:kg" or "Rice, Moong Dal" (amount null)
+  return text.split(",").map(s => s.trim()).filter(Boolean).map(s => {
+    const p = s.split(":").map(x => x.trim());
+    if (p.length >= 2 && !isNaN(Number(p[1]))) return { name: p[0], amount: Number(p[1]), unit: p[2] || "pcs" };
+    return { name: s, amount: null, unit: "pcs" };
+  });
+}
 async function addRecipe() {
   const name = $("rName").value.trim(); if (!name) return alert("Enter a dish name.");
-  const row = { name, gujarati: $("rGuj").value.trim() || null, category: $("rCat").value || "Main", minutes: Number($("rMin").value) || null, green_veg: $("rGreen").checked, ingredients: $("rIng").value.split(",").map(s => s.trim()).filter(Boolean), steps: $("rSteps").value.trim() || null, seeded: false };
-  if (demoMode) { row.id = "custom-" + Date.now(); recipes.push(row); saveLocal(); }
-  else {
+  const ings = parseIngAmounts($("rIng").value);
+  const row = { name, gujarati: $("rGuj").value.trim() || null, category: $("rCat").value || "Main", minutes: Number($("rMin").value) || null, green_veg: $("rGreen").checked, ingredients: ings.map(i => i.name), steps: $("rSteps").value.trim() || null, seeded: false };
+  if (demoMode) { row.id = "custom-" + Date.now(); row._ings = ings; recipes.push(row); saveLocal(); }
+  else if (currentHousehold) {
+    const res = await sb.from("recipes").insert({ household_id: currentHousehold.id, name, gujarati: row.gujarati, cuisine: $("rCuisine")?.value || null, meal_type: $("rMealType")?.value || "Main", cooking_time_minutes: row.minutes, favorite: $("rFav")?.checked || false, steps: row.steps, seeded: false, created_by: (await sb.auth.getUser()).data.user?.id }).select().single();
+    if (res.error) return alert("Recipe could not be saved: " + res.error.message);
+    const withAmt = ings.filter(i => i.amount != null);
+    if (withAmt.length) {
+      const ir = await sb.from("recipe_ingredients").insert(withAmt.map(i => ({ recipe_id: res.data.id, ingredient_name: i.name, amount: i.amount, unit: i.unit })));
+      if (ir.error) alert("Recipe saved, but ingredient amounts failed: " + ir.error.message);
+    }
+    await loadHouseholdRecipes();
+  } else {
     const res = await sb.from("recipes").insert(row).select().single();
-    if (res.error) return alert("Recipe could not be saved yet (recipe tables may not be created in Supabase yet): " + res.error.message);
+    if (res.error) return alert("Recipe could not be saved yet (create or join a household first for the shared recipe book): " + res.error.message);
     await loadCloud();
   }
   renderRecipes(); show("recipes");
-  ["rName", "rGuj", "rIng", "rSteps"].forEach(id => $(id).value = ""); $("rGreen").checked = false;
+  ["rName", "rGuj", "rIng", "rSteps", "rCuisine"].forEach(id => { if ($(id)) $(id).value = ""; }); $("rGreen").checked = false; if ($("rFav")) $("rFav").checked = false;
+}
+async function loadHouseholdRecipes() {
+  if (!currentHousehold) return;
+  const { data, error } = await sb.from("recipes").select("*").eq("household_id", currentHousehold.id).order("name");
+  if (!error && data) {
+    const seeded = recipes.filter(r => r.seeded);
+    recipes = [...seeded, ...data.map(r => ({ ...r, category: r.meal_type || "Main", minutes: r.cooking_time_minutes }))];
+    renderRecipes(); renderKitchen();
+  }
 }
 async function delRecipe(id) {
   if (demoMode) { recipes = recipes.filter(r => String(r.id) !== String(id)); saveLocal(); }
@@ -672,7 +699,7 @@ function renderKitchen() {
   if (sel) sel.innerHTML = `<option value="">— pick a recipe —</option>` + recipes.map(r => `<option value="${r.id}">${esc(r.name)}${r.gujarati ? " (" + esc(r.gujarati) + ")" : ""}</option>`).join("");
   $("kitchenList").innerHTML = kitchenLog.length ? kitchenLog.map(k => `
     <div class="item"><div><b>${esc(k.dish_name)}</b> ${k.gujarati ? `<span class="badge">${esc(k.gujarati)}</span>` : ""} <span class="badge">${esc(k.meal_date)}</span><br>
-    <span class="muted">${k.servings ? k.servings + " servings • " : ""}${k.cooked_by ? "Cooked by " + esc(k.cooked_by) + " • " : ""}${esc(k.notes || "")}</span></div>
+    <span class="muted">${k.servings ? k.servings + " servings • " : ""}${k.total_cost != null ? "$" + Number(k.total_cost).toFixed(2) + " total • $" + Number(k.cost_per_serving || 0).toFixed(2) + "/serving" + (k.cost_estimated ? " (estimated)" : "") + " • " : ""}${k.leftover_note ? "Leftovers: " + esc(k.leftover_note) + " • " : ""}${esc(k.notes || "")}</span></div>
     <div><button class="small" onclick="delKitchen('${k.id}')">Remove</button></div></div>`).join("")
     : "<p class='muted'>No meals logged yet. Log what you cook, and it will show here and on Home.</p>";
 }
@@ -688,12 +715,110 @@ async function logMeal(dish, gujarati, servings, notes) {
 }
 function logMealFromRecipe(id) {
   const r = recipes.find(x => String(x.id) === String(id)); if (!r) return;
-  logMeal(r.name, r.gujarati, 4, ""); show("kitchen");
+  show("kitchen");
+  if ($("kitchenRecipe")) $("kitchenRecipe").value = String(id);
+  prefillMealFromRecipe();
 }
 async function delKitchen(id) {
   if (demoMode) { kitchenLog = kitchenLog.filter(k => String(k.id) !== String(id)); saveLocal(); }
+  else if (currentHousehold) { const res = await sb.from("meals_cooked").delete().eq("id", id); if (res.error) return alert(res.error.message); await loadMeals(); }
   else { const res = await sb.from("kitchen_log").delete().eq("id", id); if (res.error) return alert(res.error.message); await loadCloud(); }
   renderKitchen();
+}
+
+// ---- Ghar Pantry Phase 5: Kitchen Log + cost per meal ----
+let mealIngs = [], mealBaseServings = 4;
+function findInvByName(name) {
+  const n = name.toLowerCase().trim();
+  return inventoryItems.find(i => i.name.toLowerCase() === n) || inventoryItems.find(i => i.name.toLowerCase().includes(n) || n.includes(i.name.toLowerCase())) || null;
+}
+function renderMealIngTable() {
+  if (!$("mealIngTable")) return;
+  if (!mealIngs.length) { $("mealIngTable").innerHTML = "<p class='muted'>No ingredients yet. Pick a recipe, or add a row.</p>"; return; }
+  let total = 0, estimated = false;
+  const rows = mealIngs.map((r, i) => {
+    const inv = findInvByName(r.name);
+    const costPer = inv && inv.cost_per_unit != null ? Number(inv.cost_per_unit) : (r.costPer != null ? Number(r.costPer) : null);
+    const cost = costPer != null ? Number(r.amount) * costPer : null;
+    if (cost == null) estimated = true; else total += cost;
+    return `<tr><td><input value="${esc(r.name)}" onchange="mealIngs[${i}].name=this.value; renderMealIngTable()"></td><td><input type="number" step="0.01" value="${r.amount}" onchange="mealIngs[${i}].amount=this.value; renderMealIngTable()"></td><td>${esc(r.unit || "pcs")}</td><td>${inv ? esc(inv.name) + " — stock " + invDisplay(inv) + (inv.cost_per_unit != null ? " • $" + inv.cost_per_unit + "/" + inv.unit : " • no price") : "Not in pantry"}</td><td>${cost != null ? "$" + cost.toFixed(2) : "estimated"}</td><td><button class="small" onclick="mealIngs.splice(${i},1); renderMealIngTable()">Remove</button></td></tr>`;
+  }).join("");
+  $("mealIngTable").innerHTML = `<table><tr><th>Ingredient</th><th>Amount</th><th>Unit</th><th>Pantry match</th><th>Cost</th><th></th></tr>${rows}</table><p class="muted">Meal cost: $${total.toFixed(2)}${estimated ? " (estimated — some items have no price)" : ""} • Per serving: $${(Number($("kServings")?.value) || 1) ? (total / (Number($("kServings")?.value) || 1)).toFixed(2) : "0.00"}</p>`;
+}
+function addMealIngRow() { mealIngs.push({ name: "", amount: 1, unit: "pcs", costPer: null }); renderMealIngTable(); }
+async function prefillMealFromRecipe() {
+  const id = $("kitchenRecipe")?.value; if (!id) return;
+  const r = recipes.find(x => String(x.id) === String(id)); if (!r) return;
+  if ($("kDish")) $("kDish").value = r.name;
+  if ($("kMealType")) $("kMealType").value = r.meal_type || r.category || "Main";
+  mealBaseServings = 4;
+  let ings = [];
+  if (r._ings) ings = r._ings;
+  else if (currentHousehold && !r.seeded) {
+    const { data } = await sb.from("recipe_ingredients").select("*").eq("recipe_id", id);
+    ings = (data || []).map(x => ({ name: x.ingredient_name, amount: x.amount, unit: x.unit }));
+    if (!ings.length && r.ingredients) ings = (Array.isArray(r.ingredients) ? r.ingredients : String(r.ingredients).split(",")).map(s => ({ name: s.trim(), amount: null, unit: "pcs" }));
+  } else if (r.ingredients) {
+    ings = (Array.isArray(r.ingredients) ? r.ingredients : String(r.ingredients).split(",")).map(s => ({ name: String(s).trim(), amount: null, unit: "pcs" }));
+  }
+  const servings = Number($("kServings")?.value) || 4;
+  mealIngs = ings.map(i => ({ name: i.name, amount: i.amount != null ? i.amount * servings / mealBaseServings : 1, unit: i.unit || "pcs", costPer: null }));
+  renderMealIngTable();
+}
+function rescaleMealIngredients() {
+  // Scaling is applied at prefill; if the user changes servings after
+  // editing amounts, leave their edited amounts alone (safer than
+  // silently rescaling) and just refresh the per-serving cost.
+  renderMealIngTable();
+}
+async function loadMeals() {
+  if (!currentHousehold) return;
+  const { data, error } = await sb.from("meals_cooked").select("*").eq("household_id", currentHousehold.id).order("meal_date", { ascending: false }).limit(50);
+  if (!error && data) {
+    kitchenLog = data;
+    renderKitchen();
+  }
+}
+async function logMealWithDeductions() {
+  if (!currentHousehold) return alert("Create or join a household first — pantry deductions and meal costs need a household pantry.");
+  const dish = $("kDish")?.value.trim() || $("kitchenRecipe")?.selectedOptions[0]?.textContent || "Custom dish";
+  const servings = Number($("kServings")?.value) || 1;
+  const recipeId = $("kitchenRecipe")?.value || null;
+  let total = 0, estimated = false;
+  const used = [];
+  for (const r of mealIngs) {
+    if (!r.name || !Number(r.amount)) continue;
+    const inv = findInvByName(r.name);
+    let cost = null;
+    if (inv && inv.cost_per_unit != null) cost = Number(r.amount) * Number(inv.cost_per_unit);
+    else if (r.costPer != null) cost = Number(r.amount) * Number(r.costPer);
+    else estimated = true;
+    if (cost != null) total += cost;
+    used.push({ name: r.name, amount: Number(r.amount), unit: r.unit || "pcs", inv, cost });
+  }
+  const perServing = servings ? total / servings : total;
+  const userId = (await sb.auth.getUser()).data.user?.id || null;
+  const res = await sb.from("meals_cooked").insert({ household_id: currentHousehold.id, recipe_id: recipeId && !String(recipeId).startsWith("seed-") ? recipeId : null, dish_name: dish, gujarati: null, meal_type: $("kMealType")?.value || "Main", servings, cooked_by: userId, meal_date: $("kitchenDate")?.value || today(), total_cost: total, cost_per_serving: perServing, cost_estimated: estimated, leftover_note: $("kLeftovers")?.value || null });
+  if (res.error) return alert("Meal could not be logged: " + res.error.message);
+  const mealId = res.data.id;
+  for (const u of used) {
+    await sb.from("meal_ingredients_used").insert({ meal_id: mealId, inventory_id: u.inv?.id || null, ingredient_name: u.name, amount: u.amount, unit: u.unit, cost: u.cost });
+    if (u.inv) {
+      if (u.inv.tracking_type === "level") {
+        const steps = ["full", "half", "low", "empty"]; const idx = steps.indexOf(u.inv.level || "full");
+        const next = steps[Math.min(idx + Math.max(1, Math.floor(u.amount)), 3)];
+        await sb.from("inventory").update({ level: next }).eq("id", u.inv.id);
+        await logInvEvent(u.inv.id, "used", -1, "Meal: " + dish);
+      } else {
+        const newQty = Math.max(0, Number(u.inv.quantity) - u.amount);
+        await sb.from("inventory").update({ quantity: newQty }).eq("id", u.inv.id);
+        await logInvEvent(u.inv.id, "used", -u.amount, "Meal: " + dish);
+      }
+    }
+  }
+  await loadInventory(); await loadMeals();
+  alert(`Meal logged: ${dish} — $${total.toFixed(2)} total, $${perServing.toFixed(2)} per serving${estimated ? " (estimated)" : ""}. Pantry deducted.`);
+  mealIngs = []; renderMealIngTable(); show("kitchen");
 }
 
 // ---- Phase 3: What To Cook ----
@@ -888,6 +1013,14 @@ async function loadBudget() {
   }).join("");
   const under = (new Date().getDay() === 0 && (budgets || []).some(b => b.period === "weekly" && thisW < Number(b.limit_amount))) ? "<div class='card'><p>Under budget this week — well done.</p></div>" : "";
   $("budgetDash").innerHTML = `<div class="card"><b>This week (${iso(ws)} to ${iso(we)}): $${thisW.toFixed(2)}</b> • Last week: $${lastW.toFixed(2)}</div>${bars}${under}<div class="card"><h3>This week by category</h3>${Object.entries(byCat).map(([k, v]) => `<div>${esc(k)}: $${v.toFixed(2)}</div>`).join("") || "<p class='muted'>No expenses this week yet.</p>"}<h3>By store</h3>${Object.entries(byStore).map(([k, v]) => `<div>${esc(k)}: $${v.toFixed(2)}</div>`).join("")}<h3>By person (ID prefix)</h3>${Object.entries(byPerson).map(([k, v]) => `<div>${esc(k)}: $${v.toFixed(2)}</div>`).join("")}</div>`;
+  if (currentHousehold) {
+    const { data: meals } = await sb.from("meals_cooked").select("*").eq("household_id", currentHousehold.id);
+    const weekMeals = (meals || []).filter(m => m.meal_date >= iso(ws) && m.meal_date <= iso(we));
+    const avg = weekMeals.length ? weekMeals.reduce((s, m) => s + Number(m.total_cost || 0), 0) / weekMeals.length : 0;
+    const counts = {}; (meals || []).forEach(m => counts[m.dish_name] = (counts[m.dish_name] || 0) + 1);
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${esc(k)} (${v}x)`).join(", ") || "None yet";
+    $("budgetDash").innerHTML += `<div class="card"><h3>Meals this week</h3><div>Average meal cost: $${avg.toFixed(2)} (${weekMeals.length} meal(s))</div><div>Most cooked dishes: ${top}</div></div>`;
+  }
   $("budgetAlerts").innerHTML = `<div class="card"><h3>Budget alerts (in-app)</h3>${(notes || []).length ? notes.map(n => `<div>${esc(n.type || "")}: ${esc(n.message)} ${n.is_read ? "" : `<button class="small" onclick="markNoteRead('${n.id}')">Mark read</button>`}</div>`).join("") : "<p class='muted'>No alerts yet. Alerts appear here when a budget crosses 50%, 80%, or 100%, or a pace warning fires.</p>"}</div>`;
 }
 async function markNoteRead(id) { await sb.from("notifications").update({ is_read: true }).eq("id", id); await loadBudget(); }
