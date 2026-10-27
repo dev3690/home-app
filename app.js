@@ -85,6 +85,7 @@ function show(view) {
   if (view === "shopping") renderShopping();
   if (view === "recipes") renderRecipes();
   if (view === "kitchen") { renderKitchen(); loadMeals(); renderMealIngTable(); }
+  if (view === "cook") { renderCook(); }
   if (view === "cook") renderCook();
   if (view === "household") renderHousehold();
   if (view === "receipts") renderReceiptReview();
@@ -205,7 +206,7 @@ async function doAuth(mode) {
   if (mode === "signup") await sb.from("profiles").upsert({ id: user.id, phone: loginMethod === "phone" ? phone : null, email: loginMethod === "email" ? email : null, display_name: name || phone || email });
   $("who").textContent = "Shared household";
   try { await loadCloud(); } catch (e) { /* a render/load error must not block login */ }
-  await loadHousehold(); await loadInventory(); await loadHouseholdRecipes(); await loadMeals(); showApp(); show(currentHousehold ? "dashboard" : "household");
+  await loadHousehold(); await loadInventory(); await loadHouseholdRecipes(); await loadMeals(); await loadJainSettings(); await loadTithiToday(); showApp(); show(currentHousehold ? "dashboard" : "household");
 }
 async function loadHousehold() {
   currentHousehold = null; householdMembers = [];
@@ -681,13 +682,13 @@ async function loadHouseholdRecipes() {
   const { data, error } = await sb.from("recipes").select("*").eq("household_id", currentHousehold.id).order("name");
   if (!error && data) {
     const ids = data.map(r => r.id);
-    let ingMap = {};
+    let ingMap = {}, ingAmtMap = {};
     if (ids.length) {
       const { data: ings } = await sb.from("recipe_ingredients").select("*").in("recipe_id", ids);
-      (ings || []).forEach(x => { (ingMap[x.recipe_id] = ingMap[x.recipe_id] || []).push(x.ingredient_name); });
+      (ings || []).forEach(x => { (ingMap[x.recipe_id] = ingMap[x.recipe_id] || []).push(x.ingredient_name); (ingAmtMap[x.recipe_id] = ingAmtMap[x.recipe_id] || []).push({ name: x.ingredient_name, amount: x.amount, unit: x.unit }); });
     }
     const seeded = recipes.filter(r => r.seeded);
-    recipes = [...seeded, ...data.map(r => ({ ...r, category: r.meal_type || "Main", minutes: r.cooking_time_minutes, ingredients: ingMap[r.id] || [] }))];
+    recipes = [...seeded, ...data.map(r => ({ ...r, category: r.meal_type || "Main", minutes: r.cooking_time_minutes, ingredients: ingMap[r.id] || [], _ings: ingAmtMap[r.id] || [] }))];
     renderRecipes(); renderKitchen();
   }
 }
@@ -837,65 +838,191 @@ async function logMealWithDeductionsInner() {
 }
 
 // ---- Phase 3: What To Cook ----
-function pantryHas(ingredient) {
+function pantryStockList() { return currentHousehold ? inventoryItems : pantry; }
+function pantryFind(ingredient) {
   const needle = ingredient.toLowerCase().trim();
-  const item = pantry.find(p => {
+  return pantryStockList().find(p => {
     const n = p.name.toLowerCase();
     return n === needle || n.includes(needle) || needle.includes(n);
-  });
+  }) || null;
+}
+function pantryHas(ingredient) {
+  const item = pantryFind(ingredient);
   if (!item) return false;
   if (item.level) return item.level !== "empty";
   return Number(item.quantity || 0) > 0;
 }
 function pantryExpiringSoon(ingredient) {
-  const needle = ingredient.toLowerCase().trim();
-  const item = pantry.find(p => { const n = p.name.toLowerCase(); return n === needle || n.includes(needle) || needle.includes(n); });
+  const item = pantryFind(ingredient);
   if (!item || !item.expiry_date) return false;
   const d = daysUntil(item.expiry_date); return d !== null && d <= 7;
 }
+// ---- Ghar Pantry Phase 6: What to Cook ----
+let jainSettings = { no_root: true, fresh_ginger_allowed: false, dry_ginger_allowed: false, no_honey: true, no_eggs_meat: true, exclude_brinjal: false, exclude_mushrooms: false, exclude_fermented: false, paryushan_mode: false };
+const ROOT_WORDS = ["onion", "garlic", "potato", "carrot", "beetroot", "radish", "turnip", "sweet potato"];
+const GREEN_WORDS = ["spinach", "palak", "fenugreek", "methi", "green bean", "green pea", "broccoli", "kale", "lettuce", "cabbage", "bottle gourd", "ivy gourd", "okra"];
+const FERMENTED_WORDS = ["yogurt", "curd", "vinegar", "soy sauce"];
+async function loadJainSettings() {
+  if (!currentHousehold) return;
+  const { data } = await sb.from("dietary_settings").select("*").eq("household_id", currentHousehold.id).is("user_id", null).limit(1);
+  if (data && data.length) jainSettings = { ...jainSettings, ...data[0] };
+  renderJainSettings();
+}
+function renderJainSettings() {
+  const ids = { jNoRoot: "no_root", jFreshGinger: "fresh_ginger_allowed", jDryGinger: "dry_ginger_allowed", jNoHoney: "no_honey", jNoEggs: "no_eggs_meat", jBrinjal: "exclude_brinjal", jMushroom: "exclude_mushrooms", jFermented: "exclude_fermented", jParyushan: "paryushan_mode" };
+  for (const [id, key] of Object.entries(ids)) if ($(id)) $(id).checked = !!jainSettings[key];
+}
+async function saveJainSettings() {
+  if (!currentHousehold) { alert("Create or join a household first — Jain settings are saved per household."); return; }
+  const s = { household_id: currentHousehold.id, user_id: null, no_root: $("jNoRoot")?.checked || false, fresh_ginger_allowed: $("jFreshGinger")?.checked || false, dry_ginger_allowed: $("jDryGinger")?.checked || false, no_honey: $("jNoHoney")?.checked || false, no_eggs_meat: $("jNoEggs")?.checked || false, exclude_brinjal: $("jBrinjal")?.checked || false, exclude_mushrooms: $("jMushroom")?.checked || false, exclude_fermented: $("jFermented")?.checked || false, paryushan_mode: $("jParyushan")?.checked || false };
+  const res = await sb.from("dietary_settings").upsert(s, { onConflict: "household_id,user_id" });
+  if (res.error) return alert("Settings could not be saved: " + res.error.message);
+  jainSettings = { ...jainSettings, ...s }; renderCook(); alert("Jain settings saved — suggestions below follow them.");
+}
+function jainViolation(ingredient) {
+  const n = ingredient.toLowerCase();
+  const s = jainSettings;
+  if (s.no_root && ROOT_WORDS.some(w => n.includes(w))) return "root vegetable";
+  if (n.includes("ginger")) {
+    if (n.includes("dry")) { if (!s.dry_ginger_allowed) return "dry ginger (not allowed in settings)"; }
+    else if (!s.fresh_ginger_allowed) return "fresh ginger (not allowed in settings)";
+  }
+  if (s.no_honey && n.includes("honey")) return "honey";
+  if (s.no_eggs_meat && /(egg|chicken|meat|fish|mutton|pork|beef)/.test(n)) return "egg/meat";
+  if (s.exclude_brinjal && /(brinjal|eggplant)/.test(n)) return "brinjal";
+  if (s.exclude_mushrooms && n.includes("mushroom")) return "mushrooms";
+  if ((s.exclude_fermented || s.paryushan_mode) && FERMENTED_WORDS.some(w => n.includes(w))) return "fermented food";
+  return null;
+}
+function isGreenRecipe(r, ings) {
+  if (r.green_veg) return true;
+  return ings.some(i => GREEN_WORDS.some(w => String(i).toLowerCase().includes(w)));
+}
 function cookAnalysis() {
-  const pool = tithiToday ? recipes.filter(r => !r.green_veg) : recipes;
-  const excluded = tithiToday ? recipes.filter(r => r.green_veg).length : 0;
-  const scored = pool.map(r => {
+  const tithiOn = tithiToday || jainSettings.paryushan_mode;
+  let pool = recipes, excluded = 0, excludedReasons = [];
+  const filtered = [];
+  for (const r of recipes) {
     const ings = Array.isArray(r.ingredients) ? r.ingredients : String(r.ingredients || "").split(",").map(s => s.trim()).filter(Boolean);
-    const have = ings.filter(pantryHas), missing = ings.filter(i => !pantryHas(i));
-    const expiring = have.filter(pantryExpiringSoon).length;
-    return { r, have, missing, expiring, score: missing.length * 10 - expiring };
-  }).sort((a, b) => a.score - b.score || a.missing.length - b.missing.length || a.r.name.localeCompare(b.r.name));
-  return { scored, excluded };
+    const bad = ings.map(jainViolation).filter(Boolean);
+    if (bad.length) { excluded++; excludedReasons.push(`${r.name} (${[...new Set(bad)].join(", ")})`); continue; }
+    if (tithiOn && isGreenRecipe(r, ings)) { excluded++; excludedReasons.push(`${r.name} (green vegetables, tithi/Paryushan)`); continue; }
+    filtered.push(r);
+  }
+  const onlyHave = $("cookOnlyHave")?.checked || false;
+  const scored = filtered.map(r => {
+    const ingsAmt = r._ings && r._ings.length ? r._ings : (Array.isArray(r.ingredients) ? r.ingredients : String(r.ingredients || "").split(",").map(s => s.trim()).filter(Boolean)).map(name => ({ name, amount: null, unit: "pcs" }));
+    const have = [], needMore = [], needToBuy = [];
+    for (const ing of ingsAmt) {
+      const item = pantryFind(ing.name);
+      const stock = item ? (item.level ? (item.level === "empty" ? 0 : 1) : Number(item.quantity || 0)) : 0;
+      if (!item || stock <= 0) needToBuy.push(ing);
+      else if (ing.amount != null && stock < Number(ing.amount)) needMore.push({ ...ing, shortfall: Number(ing.amount) - stock, stock });
+      else have.push(ing);
+    }
+    const expiring = have.filter(h => pantryExpiringSoon(h.name)).length;
+    return { r, have, needMore, needToBuy, missing: [...needMore.map(x => x.name), ...needToBuy.map(x => x.name)], expiring, score: needToBuy.length * 10 + needMore.length * 5 - expiring };
+  }).filter(a => !onlyHave || (a.needToBuy.length === 0 && a.needMore.length === 0))
+    .sort((a, b) => a.score - b.score || a.needToBuy.length - b.needToBuy.length || a.r.name.localeCompare(b.r.name));
+  return { scored, excluded, excludedReasons };
 }
 function renderCook() {
   if (!$("cookList")) return;
   if ($("tithiToggle")) $("tithiToggle").checked = tithiToday;
-  const { scored, excluded } = cookAnalysis();
+  const { scored, excluded, excludedReasons } = cookAnalysis();
+  const fmt = (list) => list.length ? list.map(x => typeof x === "string" ? esc(x) : `${esc(x.name)}${x.amount != null ? ` (${x.amount} ${esc(x.unit || "pcs")}${x.shortfall != null ? `, short ${x.shortfall} ${esc(x.unit || "pcs")}` : ""})` : ""}`).join(", ") : "—";
   const card = (a) => `
-    <div class="item"><div><b>${esc(a.r.name)}</b> ${a.r.gujarati ? `<span class="badge">${esc(a.r.gujarati)}</span>` : ""} ${a.missing.length === 0 ? `<span class="badge">Can make now</span>` : a.missing.length <= 2 ? `<span class="badge">Almost — ${a.missing.length} missing</span>` : `<span class="badge">${a.missing.length} missing</span>`}<br>
-    <span class="muted">Have: ${a.have.join(", ") || "—"}</span><br>
-    <span class="muted">Need: ${a.missing.join(", ") || "nothing"}</span>${a.expiring ? `<br><span class="muted">Uses expiring-soon pantry items first.</span>` : ""}</div>
+    <div class="item"><div><b>${esc(a.r.name)}</b> ${a.r.gujarati ? `<span class="badge">${esc(a.r.gujarati)}</span>` : ""} ${a.needToBuy.length === 0 && a.needMore.length === 0 ? `<span class="badge">Can make now</span>` : `<span class="badge">${a.needToBuy.length + a.needMore.length} to get</span>`}<br>
+    <span class="muted">Have: ${fmt(a.have)}</span><br>
+    <span class="muted">Need more: ${fmt(a.needMore)}</span><br>
+    <span class="muted">Need to buy: ${fmt(a.needToBuy)}</span>${a.expiring ? `<br><span class="muted">Uses expiring-soon pantry items first.</span>` : ""}</div>
     <div><button class="small" onclick="addMissingToShopping('${a.r.id}')">Add missing to shopping</button>
-    <button class="small" onclick="logMealFromRecipe('${a.r.id}')">I cooked this</button></div></div>`;
-  $("cookList").innerHTML = (tithiToday ? `<p class="muted">Tithi mode is ON — green-vegetable recipes are hidden (${excluded} hidden). Turn it off to see them again.</p>` : `<p class="muted">Tithi mode is OFF. Turn it on when today is a tithi / special day and green vegetables are avoided.</p>`) +
-    (scored.length ? scored.map(card).join("") : "<p class='muted'>No recipes to suggest yet. Add pantry items and recipes first.</p>");
+    <button class="small" onclick="logMealFromRecipe('${a.r.id}')">Cook this</button></div></div>`;
+  $("cookList").innerHTML = `<p class="muted">Suggestions are double-checked against your Jain settings above${tithiToday || jainSettings.paryushan_mode ? " and tithi/Paryushan mode" : ""} — ${excluded} recipe(s) hidden${excluded ? ": " + esc(excludedReasons.slice(0, 5).join("; ")) + (excludedReasons.length > 5 ? "…" : "") : ""}.</p>` +
+    (scored.length ? scored.map(card).join("") : "<p class='muted'>No recipes match right now. Try turning off 'Cook with what I have', or add pantry items and recipes first.</p>");
+  renderPlanner(); renderTithiList();
 }
 async function setTithi(on) {
   tithiToday = !!on;
   if (demoMode) { localStorage.setItem("ha_tithi_" + today(), tithiToday ? "1" : "0"); }
-  else {
-    const res = await sb.from("tithi_days").upsert({ day: today(), is_tithi: tithiToday });
+  else if (currentHousehold) {
+    const res = await sb.from("tithi_days").upsert({ household_id: currentHousehold.id, day: today(), is_tithi: tithiToday }, { onConflict: "household_id,day" });
     if (res.error) localStorage.setItem("ha_tithi_" + today(), tithiToday ? "1" : "0");
-  }
+  } else localStorage.setItem("ha_tithi_" + today(), tithiToday ? "1" : "0");
   renderCook(); renderDashboard();
+}
+async function loadTithiToday() {
+  if (!currentHousehold) { tithiToday = localStorage.getItem("ha_tithi_" + today()) === "1"; return; }
+  const { data } = await sb.from("tithi_days").select("*").eq("household_id", currentHousehold.id).eq("day", today()).limit(1);
+  tithiToday = !!(data && data.length && data[0].is_tithi);
+}
+async function addTithiDay() {
+  const d = $("tithiDate")?.value; if (!d) return alert("Pick a date first.");
+  if (!currentHousehold) { localStorage.setItem("ha_tithi_" + d, "1"); renderTithiList(); return; }
+  const res = await sb.from("tithi_days").upsert({ household_id: currentHousehold.id, day: d, is_tithi: true, note: $("tithiNote")?.value || null }, { onConflict: "household_id,day" });
+  if (res.error) return alert(res.error.message);
+  renderTithiList(); alert("Tithi day added: " + d);
+}
+async function renderTithiList() {
+  if (!$("tithiList")) return;
+  if (!currentHousehold) { $("tithiList").innerHTML = "<p class='muted'>Tithi days for a household are shown here once you create or join one. Today's toggle above still works locally.</p>"; return; }
+  const { data } = await sb.from("tithi_days").select("*").eq("household_id", currentHousehold.id).eq("is_tithi", true).order("day");
+  const list = (data || []).filter(x => x.day >= today()).slice(0, 10);
+  $("tithiList").innerHTML = list.length ? list.map(x => `<div class="item"><div><b>${esc(x.day)}</b> ${x.note ? esc(x.note) : ""}</div><div><button class="small" onclick="removeTithiDay('${x.day}')">Remove</button></div></div>`).join("") : "<p class='muted'>No upcoming tithi days saved yet.</p>";
+}
+async function removeTithiDay(d) {
+  if (!currentHousehold) { localStorage.removeItem("ha_tithi_" + d); renderTithiList(); return; }
+  await sb.from("tithi_days").delete().eq("household_id", currentHousehold.id).eq("day", d);
+  renderTithiList();
+}
+function plannerKey() { return "ha_planner_" + (currentHousehold ? currentHousehold.id : "local"); }
+function plannerWeekStart() { const d = new Date(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return d.toISOString().slice(0, 10); }
+function renderPlanner() {
+  if (!$("plannerTable")) return;
+  const start = plannerWeekStart();
+  const plan = JSON.parse(localStorage.getItem(plannerKey()) || "{}");
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  $("plannerTable").innerHTML = `<p class="muted">Week starting ${start}. Pick a dish per day, then "Cook this" opens it in Kitchen Log with its deductions.</p>` + days.map((dn, i) => {
+    const dt = new Date(start); dt.setDate(dt.getDate() + i); const ds = dt.toISOString().slice(0, 10);
+    const sel = plan[ds] || "";
+    const opts = `<option value="">— pick —</option>` + recipes.map(r => `<option value="${r.id}" ${String(sel) === String(r.id) ? "selected" : ""}>${esc(r.name)}</option>`).join("");
+    return `<div class="item"><div><b>${dn} ${ds}</b></div><div><select onchange="savePlannerDay('${ds}', this.value)">${opts}</select> ${sel ? `<button class="small" onclick="logMealFromRecipe('${sel}')">Cook this</button>` : ""}</div></div>`;
+  }).join("");
+}
+function savePlannerDay(date, recipeId) {
+  const plan = JSON.parse(localStorage.getItem(plannerKey()) || "{}");
+  if (recipeId) plan[date] = recipeId; else delete plan[date];
+  localStorage.setItem(plannerKey(), JSON.stringify(plan)); renderPlanner();
+}
+async function addPlannerMissingToShopping() {
+  const plan = JSON.parse(localStorage.getItem(plannerKey()) || "{}");
+  const ids = Object.values(plan);
+  if (!ids.length) return alert("Planner is empty — pick dishes first.");
+  let added = 0;
+  for (const id of ids) {
+    const a = cookAnalysis().scored.find(x => String(x.r.id) === String(id));
+    if (!a) continue;
+    for (const ing of [...a.needMore, ...a.needToBuy]) {
+      const qty = ing.shortfall != null ? Math.ceil(ing.shortfall) : 1;
+      if (shopping.some(s => s.name.toLowerCase() === ing.name.toLowerCase() && !s.checked)) continue;
+      const row = { name: ing.name, quantity: qty, unit: ing.unit || "pcs", category: "Other", added_by: user?.phone || "family" };
+      if (demoMode) { row.id = Date.now().toString() + Math.random(); shopping.push(row); added++; }
+      else { const res = await sb.from("shopping_items").insert(row); if (!res.error) added++; }
+    }
+  }
+  if (demoMode) saveLocal(); else await loadCloud();
+  alert(added ? `Added ${added} missing item(s) from the weekly planner to shopping.` : "Planner missing items were already on your shopping list.");
 }
 async function addMissingToShopping(recipeId) {
   const a = cookAnalysis().scored.find(x => String(x.r.id) === String(recipeId));
-  if (!a || !a.missing.length) { alert(a ? "Nothing missing for this recipe." : "Recipe not found."); return; }
+  if (!a || (a.needMore.length === 0 && a.needToBuy.length === 0)) { alert(a ? "Nothing missing for this recipe." : "Recipe not found."); return; }
   let added = 0;
-  for (const name of a.missing) {
-    if (shopping.some(s => s.name.toLowerCase() === name.toLowerCase() && !s.checked)) continue;
-    const row = { name, quantity: 1, unit: "pcs", category: "Other", added_by: user?.phone || "family" };
-    if (demoMode) { row.id = Date.now().toString() + Math.random(); shopping.push(row); }
+  for (const ing of [...a.needMore, ...a.needToBuy]) {
+    const qty = ing.shortfall != null ? Math.ceil(ing.shortfall) : 1;
+    if (shopping.some(s => s.name.toLowerCase() === ing.name.toLowerCase() && !s.checked)) continue;
+    const row = { name: ing.name, quantity: qty, unit: ing.unit || "pcs", category: "Other", added_by: user?.phone || "family" };
+    if (demoMode) { row.id = Date.now().toString() + Math.random(); shopping.push(row); added++; }
     else { const res = await sb.from("shopping_items").insert(row); if (!res.error) added++; else { alert(res.error.message); return; } }
-    if (demoMode) added++;
   }
   if (demoMode) saveLocal(); else await loadCloud();
   renderCook();
