@@ -2,12 +2,12 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home App — Pantry, Shopping & Dashboard (Phases 1–3)</title>
-<link rel="stylesheet" href="styles.css?v=16">
+<link rel="stylesheet" href="styles.css?v=17">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
-<script src="config.js"></script><script src="app.js?v=16" defer></script>
+<script src="config.js"></script><script src="app.js?v=17" defer></script>
 </head><body>
 <header id="appHeader" class="hidden"><h1>Home</h1><span id="who" class="who"></span>
 <button class="textbtn" onclick="doLogout()">Log out</button></header>
@@ -41,7 +41,7 @@
 <button class="secondary" onclick="doGoogle()">Continue with Google</button>
 <p class="muted" style="text-align:center">Google sign-in needs the Google provider turned on in Supabase. If it is not enabled yet, use phone or email for now.</p>
 <p id="authHint" class="muted" style="text-align:center">Returning? Just enter your number and password.<br>Please don't share passwords in chat — set them here.</p>
-<p class="muted" style="text-align:center">App version v16 — Ghar Pantry Phase 4 (budget)</p>
+<p class="muted" style="text-align:center">App version v17 — Ghar Pantry Phase 4 fix (expense category)</p>
 </div></div>
 </section>
 
@@ -178,7 +178,7 @@
 <button class="primary" onclick="saveBudget()">Save budget</button>
 <h3>Add an expense (manual)</h3>
 <div class="grid"><div><label>Amount ($)</label><input id="eAmt" type="number" step="0.01"></div>
-<div><label>Category</label><select id="eCat"><option>Groceries</option><option>Dal and Pulses</option><option>Dairy</option><option>Vegetables</option><option>Fruits</option><option>Household</option><option>Other</option></select></div>
+<div><label>Category</label><select id="exCat"><option>Groceries</option><option>Dal and Pulses</option><option>Dairy</option><option>Vegetables</option><option>Fruits</option><option>Household</option><option>Other</option></select></div>
 <div><label>Store</label><input id="eStore"></div><div><label>Date</label><input id="eDate" type="date"></div></div>
 <label>Note</label><input id="eNote">
 <button class="primary" onclick="saveExpense()">Save expense</button>

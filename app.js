@@ -813,7 +813,7 @@ async function saveExpense() {
   const amt = Number($("eAmt").value);
   if (!amt || amt <= 0) return alert("Enter an amount.");
   if (demoMode) return alert("Demo mode: expense would be saved live in the app.");
-  const res = await sb.from("expenses").insert({ household_id: currentHousehold.id, amount: amt, category: $("eCat").value, store_name: $("eStore").value || null, expense_date: $("eDate").value || today(), note: $("eNote").value || null, paid_by: (await sb.auth.getUser()).data.user?.id });
+  const res = await sb.from("expenses").insert({ household_id: currentHousehold.id, amount: amt, category: $("exCat").value, store_name: $("eStore").value || null, expense_date: $("eDate").value || today(), note: $("eNote").value || null, paid_by: (await sb.auth.getUser()).data.user?.id });
   if (res.error) return alert("Expense save failed: " + res.error.message);
   alert("Expense saved. Budget alerts are checked automatically on save."); await loadBudget();
 }
