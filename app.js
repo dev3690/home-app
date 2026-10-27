@@ -78,7 +78,7 @@ function showApp() {
 function show(view) {
   if (!user) return showLogin();
   showApp();
-  ["dashboard", "pantry", "add", "shopping", "recipes", "kitchen", "cook", "household"].forEach(v => { const el = $(`view-${v}`); if (el) el.classList.toggle("hidden", v !== view); });
+  ["dashboard", "pantry", "add", "shopping", "recipes", "kitchen", "cook", "household", "receipts"].forEach(v => { const el = $(`view-${v}`); if (el) el.classList.toggle("hidden", v !== view); });
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
   if (view === "dashboard") renderDashboard();
   if (view === "pantry") renderInventory();
@@ -87,6 +87,7 @@ function show(view) {
   if (view === "kitchen") renderKitchen();
   if (view === "cook") renderCook();
   if (view === "household") renderHousehold();
+  if (view === "receipts") renderReceiptReview();
 }
 
 function loadLocal() {
@@ -691,6 +692,93 @@ async function addMissingToShopping(recipeId) {
   if (demoMode) saveLocal(); else await loadCloud();
   renderCook();
   alert(added ? `Added ${added} missing item(s) to shopping.` : "Missing items were already on your shopping list.");
+}
+
+// ---- Ghar Pantry Phase 3: Receipts ----
+// AI API note: a true AI API needs a key stored server-side (Supabase
+// Edge Function), which is NOT configured yet. Phase 3 therefore uses
+// on-device OCR (Tesseract/PDF.js, already in the app) + a local
+// abbreviation/alias parser as the free interim reader. The review,
+// alias-matching, and one-transaction save below are the same either
+// way, and the OCR step can be swapped for an AI endpoint later
+// without changing the review/save flow. Do NOT claim AI reading
+// until that endpoint is configured.
+let receiptReview = [], receiptStoragePath = null, receiptStore = "", receiptDate = "";
+const ABBR = { ORG: "Organic", BNNA: "Bananas", GV: "Great Value", WHL: "Whole", MLK: "Milk", BRD: "Bread", EGGS: "Eggs", CHKN: "Chicken", TOM: "Tomato", POT: "Potato", ONN: "Onion" };
+function guessCategory(name) {
+  const n = name.toLowerCase();
+  if (/milk|yogurt|paneer|cheese|cream|butter|ghee/.test(n)) return "Dairy";
+  if (/dal|lentil|chickpea|bean/.test(n)) return "Dal and Pulses";
+  if (/rice/.test(n)) return "Rice";
+  if (/flour|atta|besan/.test(n)) return "Atta and Flour";
+  if (/banana|apple|mango|fruit/.test(n)) return "Fruits";
+  if (/tomato|spinach|potato|vegetable|gourd/.test(n)) return "Vegetables";
+  if (/oil/.test(n)) return "Oil and Ghee";
+  return "Other";
+}
+function parseReceiptText(text) {
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const items = [];
+  for (const line of lines) {
+    if (/^(total|tax|subtotal|discount|change|cash|card|store|walmart|patel|date)/i.test(line)) continue;
+    const m = line.match(/^(.*?)\s+(\d+\.?\d*)\s*$/);
+    if (!m) continue;
+    const raw = m[1].trim(), total = Number(m[2]);
+    if (!raw || total <= 0) continue;
+    const clean = raw.split(/\s+/).map(w => ABBR[w.toUpperCase()] || w).join(" ").replace(/\b\w/g, c => c.toUpperCase());
+    items.push({ raw_text: raw, clean_name: clean, quantity: 1, unit: "pcs", unit_price: total, total, category: guessCategory(clean), include: true });
+  }
+  return items;
+}
+function loadSampleReceipt() {
+  receiptReview = parseReceiptText("ORG BNNA 1.29\nGV WHL MLK 3.49\nTOOR DAL 2 KG 4.99\nTOTAL 9.77");
+  receiptStore = "Sample Store"; receiptDate = today();
+  if ($("rStore")) $("rStore").value = receiptStore;
+  if ($("rDate")) $("rDate").value = receiptDate;
+  renderReceiptReview();
+}
+async function handlePhase3Receipt(file) {
+  if (!file) return;
+  if (!currentHousehold) return alert("Create or join a household first.");
+  $("receipt3Status").textContent = "Uploading and reading receipt…";
+  try {
+    const path = `${currentHousehold.id}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const up = await sb.storage.from("receipts").upload(path, file);
+    if (up.error) { $("receipt3Status").textContent = "Storage upload failed (receipts bucket may not exist yet): " + up.error.message + " — you can still use the sample receipt or OCR below."; }
+    else { receiptStoragePath = path; $("receipt3Status").textContent = "Saved to Storage: " + path + ". Reading…"; }
+  } catch (e) { $("receipt3Status").textContent = "Storage upload failed: " + e.message; }
+  let text = "";
+  try {
+    if (file.type === "application/pdf") {
+      const buf = await file.arrayBuffer(); const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      for (let p = 1; p <= pdf.numPages; p++) { const page = await pdf.getPage(p); const c = await page.getTextContent(); text += c.items.map(x => x.str).join(" ") + "\n"; }
+    } else {
+      const r = await Tesseract.recognize(file, "eng"); text = r.data.text;
+    }
+  } catch (e) { $("receipt3Status").textContent = "Could not read this file automatically. Fix the sample below, or try a clearer photo."; return; }
+  receiptReview = parseReceiptText(text);
+  receiptStore = $("rStore")?.value || ""; receiptDate = $("rDate")?.value || today();
+  $("receipt3Status").textContent = `Found ${receiptReview.length} possible items. Fix them below, then save. Nothing is saved until you press Save receipt.`;
+  renderReceiptReview();
+}
+function renderReceiptReview() {
+  if (!$("receipt3Table")) return;
+  $("receipt3Table").innerHTML = receiptReview.length ? "<table><tr><th>Use</th><th>Raw</th><th>Clean name</th><th>Qty</th><th>Unit price ($)</th><th>Total ($)</th></tr>" +
+    receiptReview.map((r, i) => `<tr><td><input type="checkbox" ${r.include ? "checked" : ""} onchange="receiptReview[${i}].include=this.checked"></td><td>${esc(r.raw_text)}</td><td><input value="${esc(r.clean_name)}" onchange="receiptReview[${i}].clean_name=this.value"></td><td><input type="number" step="0.01" value="${r.quantity}" onchange="receiptReview[${i}].quantity=this.value"></td><td><input type="number" step="0.01" value="${r.unit_price}" onchange="receiptReview[${i}].unit_price=this.value"></td><td>${(Number(r.quantity) * Number(r.unit_price)).toFixed(2)}</td></tr>`).join("") + "</table>" +
+    `<p class="muted">Total of checked items: $${receiptReview.filter(r => r.include).reduce((s, r) => s + Number(r.quantity) * Number(r.unit_price), 0).toFixed(2)}</p>` : "<p class='muted'>No receipt items yet. Upload a receipt, or load the sample messy receipt.</p>";
+}
+async function savePhase3Receipt() {
+  if (!currentHousehold) return alert("Create or join a household first.");
+  const items = receiptReview.filter(r => r.include && r.clean_name).map(r => ({ raw_text: r.raw_text, clean_name: r.clean_name, quantity: Number(r.quantity) || 1, unit: "pcs", unit_price: Number(r.unit_price) || 0, total: (Number(r.quantity) || 1) * (Number(r.unit_price) || 0), category: guessCategory(r.clean_name) }));
+  if (!items.length) return alert("No items checked to save.");
+  const total = items.reduce((s, i) => s + i.total, 0);
+  const store = $("rStore")?.value || receiptStore || "Store";
+  const date = $("rDate")?.value || today();
+  if (demoMode) { alert("Demo mode: receipt would be saved via process_receipt in live mode."); return; }
+  const res = await sb.rpc("process_receipt", { p_household_id: currentHousehold.id, p_store_name: store, p_receipt_date: date, p_total: total, p_tax: null, p_discount: null, p_storage_path: receiptStoragePath, p_items: items });
+  if (res.error) return alert("Receipt save failed (transaction rolled back, nothing saved): " + res.error.message);
+  alert(`Receipt saved. Receipt ID: ${res.data}. Inventory, expense, and aliases updated in one transaction.`);
+  receiptReview = []; receiptStoragePath = null; renderReceiptReview(); await loadInventory();
 }
 
 // ---- Forms (wired in index.html) ----

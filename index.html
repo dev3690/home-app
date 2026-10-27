@@ -2,12 +2,12 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home App — Pantry, Shopping & Dashboard (Phases 1–3)</title>
-<link rel="stylesheet" href="styles.css?v=14">
+<link rel="stylesheet" href="styles.css?v=15">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
-<script src="config.js"></script><script src="app.js?v=14" defer></script>
+<script src="config.js"></script><script src="app.js?v=15" defer></script>
 </head><body>
 <header id="appHeader" class="hidden"><h1>Home</h1><span id="who" class="who"></span>
 <button class="textbtn" onclick="doLogout()">Log out</button></header>
@@ -17,6 +17,7 @@
 <button data-view="pantry" onclick="show('pantry')">Pantry</button>
 <button data-view="add" onclick="show('add')">Add</button>
 <button data-view="shopping" onclick="show('shopping')">Shopping</button>
+<button data-view="receipts" onclick="show('receipts')">Receipts</button>
 <button data-view="recipes" onclick="show('recipes')">Recipes</button>
 <button data-view="kitchen" onclick="show('kitchen')">Kitchen Log</button>
 <button data-view="cook" onclick="show('cook')">What To Cook</button>
@@ -39,7 +40,7 @@
 <button class="secondary" onclick="doGoogle()">Continue with Google</button>
 <p class="muted" style="text-align:center">Google sign-in needs the Google provider turned on in Supabase. If it is not enabled yet, use phone or email for now.</p>
 <p id="authHint" class="muted" style="text-align:center">Returning? Just enter your number and password.<br>Please don't share passwords in chat — set them here.</p>
-<p class="muted" style="text-align:center">App version v14 — Ghar Pantry Phase 2 fix (login not stuck)</p>
+<p class="muted" style="text-align:center">App version v15 — Ghar Pantry Phase 3 (receipts)</p>
 </div></div>
 </section>
 
@@ -151,6 +152,17 @@
 <p class="muted">Suggestions from your pantry, expiring items first. Green-vegetable recipes are hidden when tithi mode is on.</p>
 <label><input type="checkbox" id="tithiToggle" onchange="setTithi(this.checked)"> Today is a tithi / special day — avoid green vegetables</label>
 <div id="cookList" style="margin-top:12px"></div></div>
+</section>
+
+<section id="view-receipts" class="hidden">
+<div class="card"><h2>Receipts — Phase 3</h2>
+<p class="muted">Upload from camera, gallery, or PDF. The image is saved to Supabase Storage, then read (on-device OCR for now — a true AI API needs a server-side key, not yet configured). Review and fix everything before saving. Saving creates receipt + expense + inventory + average cost + aliases in one database transaction.</p>
+<div class="grid"><div><label>Store</label><input id="rStore"></div><div><label>Date</label><input id="rDate" type="date"></div></div>
+<label>Receipt photo / PDF</label><input type="file" id="receipt3File" accept="image/*,.pdf" capture="environment" onchange="handlePhase3Receipt(this.files[0])">
+<p id="receipt3Status" class="muted"></p>
+<button class="secondary" onclick="loadSampleReceipt()">Load sample messy receipt (ORG BNNA / GV WHL MLK)</button>
+<div id="receipt3Table" style="margin-top:12px"></div>
+<button class="primary" onclick="savePhase3Receipt()">Save receipt (one transaction)</button></div>
 </section>
 
 <section id="view-shopping" class="hidden">
