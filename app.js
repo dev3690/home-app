@@ -158,6 +158,12 @@ async function loadCloud() {
     const k = await sb.from("kitchen_log").select("*").order("meal_date", { ascending: false }).limit(50);
     if (!k.error) kitchenLog = k.data || [];
   } catch (e) { /* kitchen log unavailable until schema is run */ }
+  // v22 quirk fix: loadCloud overwrote recipes with raw household rows
+  // (no ingredients column, no _ings) and kitchenLog with the old table,
+  // so after any Save/Add action the Cook/Recipe screens showed blank
+  // ingredients and seeded recipes vanished until re-login. Re-apply
+  // the household merges here so every loadCloud leaves correct state.
+  if (currentHousehold) { await loadHouseholdRecipes(); await loadMeals(); }
   try {
     const t = await sb.from("tithi_days").select("*").eq("day", today()).single();
     tithiToday = !t.error && !!t.data?.is_tithi;
