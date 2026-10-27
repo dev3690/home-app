@@ -2,12 +2,12 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home App — Pantry, Shopping & Dashboard (Phases 1–3)</title>
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="styles.css?v=11">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
-<script src="config.js"></script><script src="app.js?v=10" defer></script>
+<script src="config.js"></script><script src="app.js?v=11" defer></script>
 </head><body>
 <header id="appHeader" class="hidden"><h1>Home</h1><span id="who" class="who"></span>
 <button class="textbtn" onclick="doLogout()">Log out</button></header>
@@ -39,7 +39,7 @@
 <button class="secondary" onclick="doGoogle()">Continue with Google</button>
 <p class="muted" style="text-align:center">Google sign-in needs the Google provider turned on in Supabase. If it is not enabled yet, use phone or email for now.</p>
 <p id="authHint" class="muted" style="text-align:center">Returning? Just enter your number and password.<br>Please don't share passwords in chat — set them here.</p>
-<p class="muted" style="text-align:center">App version v10 — Ghar Pantry Phase 1 (households, email/Google/phone login)</p>
+<p class="muted" style="text-align:center">App version v11 — Ghar Pantry Phase 1 fix (household screen, recipes/kitchen/cook sections)</p>
 </div></div>
 </section>
 
@@ -105,6 +105,36 @@
 <p id="receiptStatus" class="muted"></p><div id="receiptTable"></div>
 <button id="saveReceiptBtn" class="primary hidden" onclick="saveReceipt()">Save checked items to pantry</button>
 </div>
+</section>
+
+<section id="view-recipes" class="hidden">
+<div class="card"><h2>Recipe book</h2>
+<p class="muted">Jain-friendly recipes with Gujarati names. No onion, no garlic, no root vegetables except ginger in the seeded library.</p>
+<input id="recipeSearch" placeholder="Search recipes…" oninput="renderRecipes()">
+<div id="recipeList" style="margin-top:12px"></div></div>
+<div class="card"><h2>Add a family recipe</h2>
+<div class="grid"><div><label>Dish name</label><input id="rName"></div><div><label>Gujarati name</label><input id="rGuj"></div>
+<div><label>Category</label><input id="rCat" value="Main"></div><div><label>Minutes</label><input id="rMin" type="number"></div></div>
+<div><label>Ingredients (comma-separated, pantry names)</label><input id="rIng" placeholder="Rice, Moong Dal, Ginger"></div>
+<div><label>Steps</label><textarea id="rSteps" rows="3"></textarea></div>
+<label><input type="checkbox" id="rGreen"> Contains green vegetables (not for tithi)</label>
+<button class="primary" onclick="addRecipe()">Add recipe</button></div>
+</section>
+
+<section id="view-kitchen" class="hidden">
+<div class="card"><h2>Kitchen log</h2>
+<div class="grid"><div><label>Date</label><input id="kitchenDate" type="date"></div><div><label>Recipe</label><select id="kitchenRecipe"></select></div>
+<div><label>Or custom dish</label><input id="kDish" placeholder="e.g. Khichdi"></div><div><label>Servings</label><input id="kServings" type="number" value="4"></div></div>
+<div><label>Notes</label><input id="kNotes"></div>
+<button class="primary" onclick="logMeal($('kDish').value.trim() || ($('kitchenRecipe').selectedOptions[0]?.textContent || 'Custom dish'), '', Number($('kServings').value)||null, $('kNotes').value)">Log meal</button>
+<div id="kitchenList" style="margin-top:12px"></div></div>
+</section>
+
+<section id="view-cook" class="hidden">
+<div class="card"><h2>What To Cook</h2>
+<p class="muted">Suggestions from your pantry, expiring items first. Green-vegetable recipes are hidden when tithi mode is on.</p>
+<label><input type="checkbox" id="tithiToggle" onchange="setTithi(this.checked)"> Today is a tithi / special day — avoid green vegetables</label>
+<div id="cookList" style="margin-top:12px"></div></div>
 </section>
 
 <section id="view-shopping" class="hidden">

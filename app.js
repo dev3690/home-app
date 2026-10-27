@@ -67,7 +67,7 @@ function showApp() {
 function show(view) {
   if (!user) return showLogin();
   showApp();
-  ["dashboard", "pantry", "add", "shopping", "recipes", "kitchen", "cook", "household"].forEach(v => $(`view-${v}`).classList.toggle("hidden", v !== view));
+  ["dashboard", "pantry", "add", "shopping", "recipes", "kitchen", "cook", "household"].forEach(v => { const el = $(`view-${v}`); if (el) el.classList.toggle("hidden", v !== view); });
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
   if (view === "dashboard") renderDashboard();
   if (view === "pantry") renderPantry();
@@ -147,9 +147,10 @@ async function loadCloud() {
     tithiToday = !t.error && !!t.data?.is_tithi;
   } catch (e) { tithiToday = localStorage.getItem("ha_tithi_" + today()) === "1"; }
   renderDashboard(); renderPantry(); renderShopping();
-  if ($("view-recipes") && !$("view-recipes").classList.contains("hidden")) renderRecipes();
-  if ($("view-kitchen") && !$("view-kitchen").classList.contains("hidden")) renderKitchen();
-  if ($("view-cook") && !$("view-cook").classList.contains("hidden")) renderCook();
+  const vr = $("view-recipes"), vk = $("view-kitchen"), vc = $("view-cook");
+  if (vr && !vr.classList.contains("hidden")) renderRecipes();
+  if (vk && !vk.classList.contains("hidden")) renderKitchen();
+  if (vc && !vc.classList.contains("hidden")) renderCook();
 }
 
 function setLoginMethod(m) {
@@ -425,7 +426,8 @@ async function saveReceipt() {
 // ---- Phase 2: Recipe book ----
 function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, ""); }
 function renderRecipes() {
-  const q = ($("recipeSearch").value || "").toLowerCase();
+  if (!$("recipeList")) return;
+  const q = ($("recipeSearch")?.value || "").toLowerCase();
   const list = recipes.filter(r => (r.name + " " + (r.gujarati || "") + " " + (r.category || "")).toLowerCase().includes(q));
   $("recipeList").innerHTML = list.length ? list.map(r => `
     <div class="item"><div><b>${esc(r.name)}</b> ${r.gujarati ? `<span class="badge">${esc(r.gujarati)}</span>` : ""} <span class="badge">${esc(r.category || "Main")}</span> ${r.green_veg ? `<span class="badge">Green veg — not for tithi</span>` : `<span class="badge">Tithi-friendly</span>`}<br>
@@ -455,7 +457,8 @@ async function delRecipe(id) {
 
 // ---- Phase 2: Kitchen log ----
 function renderKitchen() {
-  $("kitchenDate").value = $("kitchenDate").value || today();
+  if (!$("kitchenList")) return;
+  if ($("kitchenDate")) $("kitchenDate").value = $("kitchenDate").value || today();
   const sel = $("kitchenRecipe");
   if (sel) sel.innerHTML = `<option value="">— pick a recipe —</option>` + recipes.map(r => `<option value="${r.id}">${esc(r.name)}${r.gujarati ? " (" + esc(r.gujarati) + ")" : ""}</option>`).join("");
   $("kitchenList").innerHTML = kitchenLog.length ? kitchenLog.map(k => `
@@ -513,6 +516,7 @@ function cookAnalysis() {
   return { scored, excluded };
 }
 function renderCook() {
+  if (!$("cookList")) return;
   if ($("tithiToggle")) $("tithiToggle").checked = tithiToday;
   const { scored, excluded } = cookAnalysis();
   const card = (a) => `
