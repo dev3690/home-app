@@ -28,6 +28,22 @@ button.small{width:auto;padding:8px 14px;margin:4px 4px 0 0;border:0;border-radi
 button.textbtn{background:none;border:0;color:var(--accent);font-size:15px;font-weight:600;cursor:pointer;padding:8px 4px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:600px){.grid{grid-template-columns:1fr}nav{top:57px}h2{font-size:22px}}
+/* Phase 1 layout: bottom navigation on phones, sidebar on desktop. */
+@media(max-width:700px){
+  nav{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:30;border-top:1px solid var(--line);border-bottom:0;padding:8px 10px}
+  nav .seg{overflow-x:auto}
+  nav button{font-size:13px;padding:8px 4px;white-space:nowrap}
+  main{padding-bottom:90px}
+  header{position:sticky;top:0}
+}
+@media(min-width:701px){
+  nav{position:fixed;left:0;top:57px;bottom:0;width:190px;display:block;border-right:1px solid var(--line);border-bottom:0;overflow-y:auto}
+  nav .seg{flex-direction:column;background:transparent;padding:0}
+  nav button{text-align:left;padding:12px 14px;border-radius:10px}
+  nav button.active{background:#e8e8ed;box-shadow:none}
+  header{margin-left:190px}
+  main{margin-left:190px}
+}
 .item{border-bottom:1px solid var(--line);padding:12px 0;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
 .item:last-child{border-bottom:0}
 .badge{display:inline-block;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:500;background:#f5f5f7;color:#424245}

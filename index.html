@@ -1,21 +1,25 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Home App — Pantry, Shopping & Dashboard (Phase 1)</title>
-<link rel="stylesheet" href="styles.css?v=8">
+<title>Home App — Pantry, Shopping & Dashboard (Phases 1–3)</title>
+<link rel="stylesheet" href="styles.css?v=10">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
-<script src="config.js"></script><script src="app.js?v=8" defer></script>
+<script src="config.js"></script><script src="app.js?v=10" defer></script>
 </head><body>
 <header id="appHeader" class="hidden"><h1>Home</h1><span id="who" class="who"></span>
 <button class="textbtn" onclick="doLogout()">Log out</button></header>
 <nav id="mainNav" class="hidden"><div class="seg">
 <button data-view="dashboard" class="active" onclick="show('dashboard')">Home</button>
+<button data-view="household" onclick="show('household')">Household</button>
 <button data-view="pantry" onclick="show('pantry')">Pantry</button>
 <button data-view="add" onclick="show('add')">Add</button>
 <button data-view="shopping" onclick="show('shopping')">Shopping</button>
+<button data-view="recipes" onclick="show('recipes')">Recipes</button>
+<button data-view="kitchen" onclick="show('kitchen')">Kitchen Log</button>
+<button data-view="cook" onclick="show('cook')">What To Cook</button>
 </div></nav>
 <main>
 <!-- LOGIN PAGE — the only thing shown when logged out. No pantry, shopping or home data is rendered before login. -->
@@ -25,13 +29,17 @@
 <p class="tag">Your family's pantry, shopping and kitchen — in one calm place.</p>
 <p class="muted">Each family member has their own login, and everyone sees the same shared household.</p>
 <div class="seg" style="margin:12px 0"><button id="tabLogin" class="active" onclick="setAuthMode('login')">Log in</button><button id="tabSignup" onclick="setAuthMode('signup')">Create account</button></div>
-<label>Phone number</label><input id="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="e.g. 6175550123" maxlength="10">
-<p class="muted" style="margin-top:4px">Enter 10 digits only — no spaces, hyphens, or +1.</p>
+<div class="seg" style="margin:12px 0"><button id="methodPhone" class="active" onclick="setLoginMethod('phone')">Phone</button><button id="methodEmail" onclick="setLoginMethod('email')">Email</button></div>
+<div id="phoneField"><label>Phone number</label><input id="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="e.g. 6175550123" maxlength="10">
+<p class="muted" style="margin-top:4px">Enter 10 digits only — no spaces, hyphens, or +1.</p></div>
+<div id="emailField" class="hidden"><label>Email</label><input id="email" type="email" autocomplete="email" placeholder="e.g. you@example.com"></div>
 <div id="nameField" class="hidden"><label>Your name</label><input id="displayName" autocomplete="name" placeholder="e.g. Dev"></div>
 <label>Password</label><input id="pass" type="password" autocomplete="current-password" placeholder="At least 6 characters">
 <button id="authSubmit" class="primary" onclick="doAuth(authMode)">Log in</button>
+<button class="secondary" onclick="doGoogle()">Continue with Google</button>
+<p class="muted" style="text-align:center">Google sign-in needs the Google provider turned on in Supabase. If it is not enabled yet, use phone or email for now.</p>
 <p id="authHint" class="muted" style="text-align:center">Returning? Just enter your number and password.<br>Please don't share passwords in chat — set them here.</p>
-<p class="muted" style="text-align:center">App version v8 — Used fix</p>
+<p class="muted" style="text-align:center">App version v10 — Ghar Pantry Phase 1 (households, email/Google/phone login)</p>
 </div></div>
 </section>
 
@@ -39,10 +47,27 @@
 <div id="appPages" class="hidden">
 <div id="demoBanner" class="hidden">Demo mode: this device only. Connect Supabase (see README) to share live with family.</div>
 
+<section id="view-household" class="hidden">
+<div class="card"><h2>Household</h2>
+<p class="muted">Create a household, or join one with an invite code. Only members of your household can see its data.</p>
+<div id="householdInfo"></div>
+<div class="grid"><div><label>New household name</label><input id="hhName" placeholder="e.g. Panchal Home"></div>
+<div><label>Invite code to join</label><input id="hhJoinCode" placeholder="e.g. A1B2C3D4"></div></div>
+<button class="primary" onclick="createHousehold()">Create household (I am admin)</button>
+<button class="secondary" onclick="joinHousehold()">Join household by code</button>
+<p class="muted">Invite link format: share the site link with ?invite=CODE at the end, and the code will be filled in automatically.</p>
+<div id="memberList" style="margin-top:12px"></div></div>
+</section>
+
 <section id="view-dashboard">
 <div id="dashCounts"></div><div id="dashFlags"></div>
-<div class="card"><h3>Phase 1 — what's here</h3>
-<p class="muted">Pantry, shopping list, and home dashboard. Phase 2 adds kitchen log + recipe book, Phase 3 adds What to Cook, Phase 4 adds budget + cost per meal.</p></div>
+<div class="card"><h3>Recent meals</h3><div id="dashRecent"></div>
+<p class="muted"><button class="small" onclick="show('kitchen')">Log a meal</button> <button class="small" onclick="show('cook')">What To Cook</button></p></div>
+<div class="card"><h3>Tithi today?</h3><p id="dashTithi" class="muted"></p>
+<label><input type="checkbox" id="dashTithiToggle" onchange="setTithi(this.checked)"> Today is a tithi / special day — avoid green vegetables</label>
+<p class="muted">Tithi filtering is manual for now: tick this on a tithi day. An automatic Gujarati calendar will be added later; the toggle is the manual override.</p></div>
+<div class="card"><h3>Phases 1–3 — what's here</h3>
+<p class="muted">Pantry, shopping list, home dashboard, recipe book, kitchen log, and What To Cook. Phase 4 adds budget + cost per meal.</p></div>
 </section>
 
 <section id="view-pantry" class="hidden">
